@@ -303,7 +303,7 @@ function ReviewCard({ review }: { review: UserReview }) {
   const [expanded, setExpanded] = useState(false);
   const long = review.description.length > 260;
   return (
-    <article className="flex flex-col rounded-xl border border-line bg-card p-4 shadow-card">
+    <article className="flex min-w-0 flex-col rounded-xl border border-line bg-card p-4 shadow-card">
       <header className="flex items-center gap-3">
         {review.user_thumbnail ? (
           // eslint-disable-next-line @next/next/no-img-element
@@ -549,7 +549,7 @@ export function SimilarSection({
             key={i}
             onClick={() => onSelect(p)}
             disabled={!p.data_id}
-            className="group flex items-center gap-3 rounded-xl border border-line bg-card p-3 text-left shadow-card transition-all hover:border-moss/40 hover:shadow-pop disabled:cursor-default"
+            className="group flex min-w-0 items-center gap-3 rounded-xl border border-line bg-card p-3 text-left shadow-card transition-all hover:border-moss/40 hover:shadow-pop disabled:cursor-default"
           >
             {p.thumbnail ? (
               // eslint-disable-next-line @next/next/no-img-element
