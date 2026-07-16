@@ -1,0 +1,131 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+:root {
+  /* RGB triplet để Tailwind áp được độ trong suốt (bg-moss/25, text-ink/80…) */
+  --paper: 241 242 236;
+  --card: 252 252 248;
+  --ink: 29 36 29;
+  --soft: 88 98 79;
+  --line: rgba(29, 36, 29, 0.13);
+  --field: 231 234 224;
+  --moss: 21 104 75;
+  --moss-deep: 11 74 51;
+  --pin: 216 67 47;
+  --amber: 222 159 47;
+}
+
+body {
+  background-color: rgb(var(--paper));
+  color: rgb(var(--ink));
+  /* lưới chấm giấy trắc địa */
+  background-image: radial-gradient(rgba(29, 36, 29, 0.075) 1px, transparent 1.1px);
+  background-size: 22px 22px;
+  min-height: 100vh;
+  -webkit-font-smoothing: antialiased;
+}
+
+::selection {
+  background: rgb(var(--moss));
+  color: rgb(var(--card));
+}
+
+:focus-visible {
+  outline: 2px solid rgb(var(--moss));
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+
+/* Ô nhập liệu không cần vòng outline — khung chứa đã đổi viền khi focus */
+input:focus-visible,
+textarea:focus-visible {
+  outline: none;
+}
+
+/* Chữ display giãn ngang — chất "bảng hiệu đo đạc" */
+.wide {
+  font-stretch: 116%;
+}
+.wider {
+  font-stretch: 125%;
+}
+
+/* Đường ranh đứt — xương sống lộ trình của hồ sơ */
+.spine {
+  background-image: linear-gradient(to bottom, rgba(29, 36, 29, 0.28) 55%, transparent 45%);
+  background-size: 2px 9px;
+  background-repeat: repeat-y;
+  width: 2px;
+}
+
+/* Kẻ chấm dẫn giá trong thực đơn */
+.dot-leader {
+  background-image: radial-gradient(circle, rgba(29, 36, 29, 0.35) 1px, transparent 1.4px);
+  background-size: 7px 2px;
+  background-position: bottom;
+  background-repeat: repeat-x;
+  height: 0.9em;
+}
+
+@keyframes rise {
+  from {
+    opacity: 0;
+    transform: translateY(10px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
+}
+.rise {
+  animation: rise 0.45s cubic-bezier(0.2, 0.7, 0.3, 1) both;
+}
+.rise-1 { animation-delay: 0.05s; }
+.rise-2 { animation-delay: 0.12s; }
+.rise-3 { animation-delay: 0.19s; }
+
+@keyframes pulse-dot {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(21, 104, 75, 0.45); }
+  55% { box-shadow: 0 0 0 5px rgba(21, 104, 75, 0); }
+}
+.pulse-dot {
+  animation: pulse-dot 2.2s ease-out infinite;
+}
+
+@keyframes shimmer {
+  from { background-position: 200% 0; }
+  to { background-position: -200% 0; }
+}
+.skeleton {
+  background: linear-gradient(
+    100deg,
+    rgb(var(--field)) 40%,
+    #f3f5ee 50%,
+    rgb(var(--field)) 60%
+  );
+  background-size: 200% 100%;
+  animation: shimmer 1.6s linear infinite;
+  border-radius: 8px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .rise,
+  .pulse-dot,
+  .skeleton {
+    animation: none;
+  }
+}
+
+/* Thanh cuộn mảnh cho các vùng cuộn ngang */
+.thin-scroll::-webkit-scrollbar {
+  height: 6px;
+  width: 6px;
+}
+.thin-scroll::-webkit-scrollbar-thumb {
+  background: rgba(29, 36, 29, 0.18);
+  border-radius: 999px;
+}
+.thin-scroll::-webkit-scrollbar-track {
+  background: transparent;
+}

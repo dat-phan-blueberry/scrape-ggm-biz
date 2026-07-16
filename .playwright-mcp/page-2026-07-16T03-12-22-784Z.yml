@@ -1,0 +1,26 @@
+- generic [active] [ref=e1]:
+  - generic [ref=e2]:
+    - banner [ref=e3]:
+      - generic [ref=e4]:
+        - generic [ref=e9]:
+          - generic [ref=e10]: ĐỊA BẠ
+          - generic [ref=e11]: hồ sơ quán từ Google Maps
+        - generic [ref=e12]: SerpAPI · Gemini
+    - main [ref=e13]:
+      - generic [ref=e14]:
+        - paragraph [ref=e15]: Tra cứu địa điểm
+        - textbox "Tìm địa điểm" [ref=e21]:
+          - /placeholder: Tên quán ăn, nhà hàng, quán cà phê…
+      - generic [ref=e22]:
+        - paragraph [ref=e29]: Chưa chọn địa điểm
+        - paragraph [ref=e30]: Gõ tên quán rồi chọn một gợi ý — toàn bộ hồ sơ Google Maps sẽ được trải ra thành một bản đồ dữ liệu.
+        - generic [ref=e31]:
+          - generic [ref=e32]: "Thử ngay:"
+          - button "bò leo thang" [ref=e33] [cursor=pointer]
+          - button "phở thìn" [ref=e34] [cursor=pointer]
+          - button "cục gạch quán" [ref=e35] [cursor=pointer]
+    - contentinfo [ref=e36]:
+      - generic [ref=e37]:
+        - paragraph [ref=e38]: Địa Bạ — công cụ khảo sát nội bộ
+        - paragraph [ref=e39]: "dữ liệu: SerpAPI (Google Maps) · thẩm định: Gemini"
+  - alert [ref=e40]
