@@ -65,6 +65,10 @@ export const IconSparkle = icon(
 
 export const IconChevron = icon(<path d="m6 9 6 6 6-6" />);
 
+export const IconDownload = icon(
+  <path d="M12 4v10m0 0 4-4m-4 4-4-4M5 20h14" />
+);
+
 export const IconCamera = icon(
   <>
     <path d="M4 8.5h3l1.6-2.5h6.8L17 8.5h3a1 1 0 0 1 1 1V18a1 1 0 0 1-1 1H4a1 1 0 0 1-1-1V9.5a1 1 0 0 1 1-1z" />
@@ -267,32 +271,46 @@ function inlineMd(text: string, keyBase: string): React.ReactNode[] {
   );
 }
 
+interface MdListItem {
+  text: string;
+  subs: string[];
+}
+
 export function MarkdownLite({ text }: { text: string }) {
   const blocks: React.ReactNode[] = [];
-  let list: { ordered: boolean; items: string[] } | null = null;
+  let list: { ordered: boolean; start: number; items: MdListItem[] } | null = null;
   let key = 0;
+
+  const bulletLi = (content: string, i: number, keyBase: string) => (
+    <li key={i} className="relative pl-5">
+      <span className="absolute left-0 top-[0.52em] h-1.5 w-1.5 rounded-sm bg-moss" aria-hidden />
+      {inlineMd(content, keyBase)}
+    </li>
+  );
 
   const flushList = () => {
     if (!list) return;
-    const items = list.items.map((item, i) => (
-      <li key={i} className="relative pl-5">
-        <span
-          className={`absolute left-0 top-[0.52em] ${
-            list!.ordered ? "hidden" : "h-1.5 w-1.5 rounded-sm bg-moss"
-          }`}
-          aria-hidden
-        />
-        {inlineMd(item, `li-${key}-${i}`)}
-      </li>
-    ));
     blocks.push(
       list.ordered ? (
-        <ol key={key++} className="my-2 list-decimal space-y-1.5 pl-5 marker:font-mono marker:text-[0.8em] marker:text-moss-deep">
-          {items}
+        <ol
+          key={key++}
+          start={list.start}
+          className="my-2 list-decimal space-y-1.5 pl-5 marker:font-mono marker:text-[0.8em] marker:text-moss-deep"
+        >
+          {list.items.map((item, i) => (
+            <li key={i}>
+              {inlineMd(item.text, `li-${key}-${i}`)}
+              {item.subs.length > 0 && (
+                <ul className="mt-1.5 space-y-1">
+                  {item.subs.map((sub, si) => bulletLi(sub, si, `sub-${key}-${i}-${si}`))}
+                </ul>
+              )}
+            </li>
+          ))}
         </ol>
       ) : (
         <ul key={key++} className="my-2 space-y-1.5">
-          {items}
+          {list.items.map((item, i) => bulletLi(item.text, i, `li-${key}-${i}`))}
         </ul>
       )
     );
@@ -302,7 +320,8 @@ export function MarkdownLite({ text }: { text: string }) {
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
     if (!line) {
-      flushList();
+      // dòng trống không ngắt danh sách số — Gemini hay chèn dòng trống giữa các mục
+      if (!list?.ordered) flushList();
       continue;
     }
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) {
@@ -326,20 +345,22 @@ export function MarkdownLite({ text }: { text: string }) {
     }
     const bullet = line.match(/^[-*]\s+(.*)$/);
     if (bullet) {
-      if (!list || list.ordered) {
-        flushList();
-        list = { ordered: false, items: [] };
+      // bullet ngay sau mục số = ý con của mục đó
+      if (list?.ordered && list.items.length > 0) {
+        list.items[list.items.length - 1].subs.push(bullet[1]);
+      } else {
+        if (!list) list = { ordered: false, start: 1, items: [] };
+        list.items.push({ text: bullet[1], subs: [] });
       }
-      list.items.push(bullet[1]);
       continue;
     }
-    const numbered = line.match(/^\d+[.)]\s+(.*)$/);
+    const numbered = line.match(/^(\d+)[.)]\s+(.*)$/);
     if (numbered) {
       if (!list || !list.ordered) {
         flushList();
-        list = { ordered: true, items: [] };
+        list = { ordered: true, start: parseInt(numbered[1], 10) || 1, items: [] };
       }
-      list.items.push(numbered[1]);
+      list.items.push({ text: numbered[2], subs: [] });
       continue;
     }
     flushList();

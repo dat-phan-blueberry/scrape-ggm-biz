@@ -441,7 +441,11 @@ export default function HomePage() {
                 <PopularTimesSection profile={profile} />
                 <GallerySection profile={profile} />
                 <SimilarSection profile={profile} onSelect={handleSelectSimilar} />
-                <AiAuditSection state={ai} onRun={runAiAudit} />
+                <AiAuditSection
+                  state={ai}
+                  onRun={runAiAudit}
+                  restaurant={profile.title || selectedName}
+                />
                 <RawJsonSection raw={raw} />
               </div>
 

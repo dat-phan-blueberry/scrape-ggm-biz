@@ -13,6 +13,7 @@ import {
   IconChart,
   IconClock,
   IconCompass,
+  IconDownload,
   IconGlobe,
   IconMessage,
   IconPhone,
@@ -29,6 +30,7 @@ import {
   Stars,
   StarSolid,
 } from "@/components/ui";
+import { openAuditReport } from "@/lib/report-html";
 
 const VN_DAYS = ["chủ nhật", "thứ hai", "thứ ba", "thứ tư", "thứ năm", "thứ sáu", "thứ bảy"];
 const EN_DAYS = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"];
@@ -586,11 +588,32 @@ export type AiState =
   | { status: "done"; analysis: string }
   | { status: "error"; message: string };
 
-export function AiAuditSection({ state, onRun }: { state: AiState; onRun: () => void }) {
+export function AiAuditSection({
+  state,
+  onRun,
+  restaurant,
+}: {
+  state: AiState;
+  onRun: () => void;
+  restaurant: string;
+}) {
   const score =
     state.status === "done"
       ? state.analysis.match(/(\d+(?:[.,]\d+)?)\s*\/\s*10/)?.[1]?.replace(",", ".")
       : null;
+
+  const exportPdf = () => {
+    if (state.status !== "done") return;
+    const opened = openAuditReport({
+      restaurant,
+      analysis: state.analysis,
+      score,
+      logoUrl: `${window.location.origin}/logo.png`,
+    });
+    if (!opened) {
+      window.alert("Trình duyệt đang chặn cửa sổ mới — hãy cho phép popup để xuất PDF.");
+    }
+  };
 
   return (
     <Section title="Thẩm định hồ sơ" icon={IconSparkle} meta="đánh giá hiện diện Google Maps">
@@ -641,16 +664,25 @@ export function AiAuditSection({ state, onRun }: { state: AiState; onRun: () => 
 
         {state.status === "done" && (
           <div>
-            <div className="flex items-center justify-between gap-3 border-b border-line bg-field/50 px-5 py-3">
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-field/50 px-5 py-3">
               <p className="wide font-mono text-[0.66rem] uppercase tracking-[0.18em] text-soft">
                 Báo cáo thẩm định
               </p>
-              {score && (
-                <p className="flex items-baseline gap-1 font-display">
-                  <span className="wider text-xl font-extrabold text-moss-deep">{score}</span>
-                  <span className="font-mono text-[0.66rem] text-soft">/10 cạnh tranh</span>
-                </p>
-              )}
+              <div className="flex items-center gap-4">
+                {score && (
+                  <p className="flex items-baseline gap-1 font-display">
+                    <span className="wider text-xl font-extrabold text-moss-deep">{score}</span>
+                    <span className="font-mono text-[0.66rem] text-soft">/10 cạnh tranh</span>
+                  </p>
+                )}
+                <button
+                  onClick={exportPdf}
+                  className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-card px-3 py-1.5 text-[0.74rem] font-semibold shadow-card transition-colors hover:border-moss/50 hover:text-moss-deep"
+                >
+                  <IconDownload className="h-3.5 w-3.5" />
+                  Xuất PDF
+                </button>
+              </div>
             </div>
             <div className="p-5">
               <MarkdownLite text={state.analysis} />
