@@ -95,110 +95,60 @@ Viết súc tích, dựa trên số liệu, không chung chung.`;
       temperature: 0.4,
       topP: 0.95,
       maxOutputTokens: 8192,
-      // TẮT thinking: trả chữ ngay lập tức (time-to-first-token thấp) để
-      // Netlify không kill function khi model còn đang "suy nghĩ", đồng thời
-      // không phí token cho phần thought (ta vốn đã lọc bỏ ở dưới).
+      // TẮT thinking: model trả chữ gần như tức thì thay vì "suy nghĩ" hàng
+      // chục giây. Nhờ vậy request hoàn tất trong ~5s -> không còn dính
+      // "Inactivity Timeout" của proxy Netlify (chỉ nổ khi im lặng quá lâu).
       thinkingConfig: { thinkingBudget: 0 },
     },
   });
 
-  const encoder = new TextEncoder();
+  // Ghi chú: KHÔNG stream SSE về client nữa. Netlify edge nén Brotli
+  // (content-encoding: br) và buffer luôn text/event-stream, nuốt mất các
+  // chunk sau -> client chỉ nhận được ": ping". Header no-transform không
+  // được tôn trọng. Vì thinking đã tắt, gọi non-stream trả JSON nhanh & ổn
+  // định; hiệu ứng "gõ chữ kiểu GPT" được xử lý ở phía client.
+  let lastStatus = 500;
+  for (const model of MODELS) {
+    try {
+      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+      const res = await fetch(url, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: requestBody,
+      });
 
-  const stream = new ReadableStream<Uint8Array>({
-    async start(controller) {
-      // Client protocol (SSE):
-      //   : ping           -> keepalive (bỏ qua ở client), giữ kết nối khi model "thinking"
-      //   data: {"text"}   -> một đoạn nội dung
-      //   data: {"error"}  -> lỗi
-      //   data: [DONE]     -> kết thúc
-      const sendData = (obj: unknown) =>
-        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
-      const ping = () => controller.enqueue(encoder.encode(`: ping\n\n`));
-
-      // Mở kết nối ngay để proxy thấy có byte -> không bị Inactivity Timeout.
-      ping();
-
-      let sentAny = false;
-      let lastStatus = 500;
-
-      for (const model of MODELS) {
-        try {
-          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
-          const res = await fetch(url, {
-            method: "POST",
-            headers: { "Content-Type": "application/json" },
-            body: requestBody,
-          });
-
-          if (!res.ok || !res.body) {
-            lastStatus = res.status;
-            const errText = await res.text().catch(() => "");
-            console.error(`[ai-analysis] ${model} error:`, res.status, errText.slice(0, 300));
-            // quá tải / hết hạn mức: thử model kế tiếp (chưa gửi text nên an toàn)
-            continue;
-          }
-
-          const reader = res.body.getReader();
-          const decoder = new TextDecoder();
-          let buffer = "";
-
-          // Đọc SSE từ Gemini, tách theo dòng, forward phần text về client.
-          while (true) {
-            const { done, value } = await reader.read();
-            if (done) break;
-            buffer += decoder.decode(value, { stream: true });
-
-            let nl: number;
-            while ((nl = buffer.indexOf("\n")) >= 0) {
-              const line = buffer.slice(0, nl).trim();
-              buffer = buffer.slice(nl + 1);
-              if (!line.startsWith("data:")) continue;
-              const payload = line.slice(5).trim();
-              if (!payload || payload === "[DONE]") continue;
-              try {
-                const json = JSON.parse(payload);
-                const parts = json.candidates?.[0]?.content?.parts || [];
-                for (const p of parts) {
-                  if (typeof p.text === "string" && !p.thought) {
-                    sendData({ text: p.text });
-                    sentAny = true;
-                  } else {
-                    // phần "thinking" hoặc chunk rỗng -> keepalive
-                    ping();
-                  }
-                }
-              } catch {
-                /* chunk chưa hoàn chỉnh hoặc không parse được -> bỏ qua */
-              }
-            }
-          }
-
-          if (sentAny) break; // xong, không cần model dự phòng
-          lastStatus = 502; // stream ok nhưng rỗng -> thử model kế tiếp
-        } catch (e) {
-          console.error(`[ai-analysis] ${model} stream failed:`, e);
-          if (sentAny) break; // đã stream dở -> dừng, tránh trùng nội dung
-          lastStatus = 500;
-        }
+      const data = await res.json();
+      if (!res.ok) {
+        console.error(`[ai-analysis] ${model} error:`, res.status, data?.error?.message);
+        lastStatus = res.status;
+        // quá tải / hết hạn mức -> thử model kế tiếp
+        if (res.status === 503 || res.status === 429 || res.status === 500) continue;
+        return NextResponse.json(
+          { error: `Dịch vụ phân tích trả về lỗi (${res.status}). Thử lại sau ít phút.` },
+          { status: res.status }
+        );
       }
 
-      if (!sentAny) {
-        sendData({
-          error: `Dịch vụ phân tích đang quá tải (${lastStatus}). Thử lại sau ít phút.`,
-        });
-      }
-      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
-      controller.close();
-    },
-  });
+      const parts = data.candidates?.[0]?.content?.parts || [];
+      const text = parts
+        .filter((p: any) => typeof p.text === "string" && !p.thought)
+        .map((p: any) => p.text)
+        .join("\n")
+        .trim();
 
-  return new Response(stream, {
-    headers: {
-      "Content-Type": "text/event-stream; charset=utf-8",
-      "Cache-Control": "no-cache, no-transform",
-      Connection: "keep-alive",
-      // tắt buffering ở proxy (Netlify/nginx) để chunk tới client ngay
-      "X-Accel-Buffering": "no",
-    },
-  });
+      if (!text) {
+        lastStatus = 502;
+        continue;
+      }
+
+      return NextResponse.json({ analysis: text });
+    } catch {
+      lastStatus = 500;
+    }
+  }
+
+  return NextResponse.json(
+    { error: "Dịch vụ phân tích đang quá tải. Thử lại sau ít phút." },
+    { status: lastStatus }
+  );
 }

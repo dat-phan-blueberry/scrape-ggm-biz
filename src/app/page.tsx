@@ -171,60 +171,34 @@ export default function HomePage() {
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profile }),
       });
-
-      // Lỗi cấu hình / body sai được trả JSON (không phải stream).
-      if (!res.ok || !res.body) {
-        let msg = `Lỗi ${res.status}`;
-        try {
-          const d = await res.json();
-          msg = d.error || msg;
-        } catch {
-          /* giữ msg mặc định */
-        }
-        setAi({ status: "error", message: msg });
+      const data = await res.json();
+      if (!res.ok || data.error) {
+        setAi({ status: "error", message: data.error || `Lỗi ${res.status}` });
         return;
       }
 
-      const reader = res.body.getReader();
-      const decoder = new TextDecoder();
-      let buffer = "";
-      let acc = "";
-      let errMsg: string | null = null;
+      const full: string = data.analysis ?? "";
+      if (!full.trim()) {
+        setAi({ status: "error", message: "Không nhận được nội dung phân tích." });
+        return;
+      }
 
-      while (true) {
-        const { done, value } = await reader.read();
-        if (done) break;
-        buffer += decoder.decode(value, { stream: true });
-
-        let nl: number;
-        while ((nl = buffer.indexOf("\n")) >= 0) {
-          const line = buffer.slice(0, nl).trim();
-          buffer = buffer.slice(nl + 1);
-          if (!line.startsWith("data:")) continue; // bỏ qua ": ping" keepalive
-          const payload = line.slice(5).trim();
-          if (!payload || payload === "[DONE]") continue;
-          try {
-            const obj = JSON.parse(payload);
-            if (obj.error) {
-              errMsg = obj.error;
-            } else if (typeof obj.text === "string") {
-              acc += obj.text;
-              setAi({ status: "streaming", analysis: acc });
-            }
-          } catch {
-            /* chunk chưa hoàn chỉnh -> bỏ qua */
+      // Hiệu ứng "gõ chữ kiểu GPT" ở phía client: hiện nội dung dần cho mượt.
+      // (Server trả JSON một lần vì Netlify edge buffer/nén stream SSE.)
+      await new Promise<void>((resolve) => {
+        let i = 0;
+        const step = Math.max(3, Math.round(full.length / 220)); // ~3.5s tổng
+        const timer = window.setInterval(() => {
+          i = Math.min(full.length, i + step);
+          setAi({ status: "streaming", analysis: full.slice(0, i) });
+          if (i >= full.length) {
+            window.clearInterval(timer);
+            resolve();
           }
-        }
-      }
+        }, 16);
+      });
 
-      if (acc.trim()) {
-        setAi({ status: "done", analysis: acc });
-      } else {
-        setAi({
-          status: "error",
-          message: errMsg || "Không nhận được nội dung phân tích.",
-        });
-      }
+      setAi({ status: "done", analysis: full });
     } catch {
       setAi({ status: "error", message: "Không kết nối được máy chủ." });
     }
