@@ -164,18 +164,66 @@ export default function HomePage() {
 
   const runAiAudit = async () => {
     if (!profile) return;
-    setAi({ status: "loading" });
+    setAi({ status: "streaming", analysis: "" });
     try {
       const res = await fetch("/api/ai-analysis", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profile }),
       });
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setAi({ status: "error", message: data.error || `Lỗi ${res.status}` });
+
+      // Lỗi cấu hình / body sai được trả JSON (không phải stream).
+      if (!res.ok || !res.body) {
+        let msg = `Lỗi ${res.status}`;
+        try {
+          const d = await res.json();
+          msg = d.error || msg;
+        } catch {
+          /* giữ msg mặc định */
+        }
+        setAi({ status: "error", message: msg });
+        return;
+      }
+
+      const reader = res.body.getReader();
+      const decoder = new TextDecoder();
+      let buffer = "";
+      let acc = "";
+      let errMsg: string | null = null;
+
+      while (true) {
+        const { done, value } = await reader.read();
+        if (done) break;
+        buffer += decoder.decode(value, { stream: true });
+
+        let nl: number;
+        while ((nl = buffer.indexOf("\n")) >= 0) {
+          const line = buffer.slice(0, nl).trim();
+          buffer = buffer.slice(nl + 1);
+          if (!line.startsWith("data:")) continue; // bỏ qua ": ping" keepalive
+          const payload = line.slice(5).trim();
+          if (!payload || payload === "[DONE]") continue;
+          try {
+            const obj = JSON.parse(payload);
+            if (obj.error) {
+              errMsg = obj.error;
+            } else if (typeof obj.text === "string") {
+              acc += obj.text;
+              setAi({ status: "streaming", analysis: acc });
+            }
+          } catch {
+            /* chunk chưa hoàn chỉnh -> bỏ qua */
+          }
+        }
+      }
+
+      if (acc.trim()) {
+        setAi({ status: "done", analysis: acc });
       } else {
-        setAi({ status: "done", analysis: data.analysis });
+        setAi({
+          status: "error",
+          message: errMsg || "Không nhận được nội dung phân tích.",
+        });
       }
     } catch {
       setAi({ status: "error", message: "Không kết nối được máy chủ." });

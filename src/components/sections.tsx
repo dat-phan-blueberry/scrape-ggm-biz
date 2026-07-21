@@ -585,6 +585,7 @@ export function SimilarSection({
 export type AiState =
   | { status: "idle" }
   | { status: "loading" }
+  | { status: "streaming"; analysis: string }
   | { status: "done"; analysis: string }
   | { status: "error"; message: string };
 
@@ -643,6 +644,39 @@ export function AiAuditSection({
             <div className="skeleton h-4 w-full" />
             <div className="skeleton h-4 w-5/6" />
             <div className="skeleton h-4 w-2/3" />
+          </div>
+        )}
+
+        {state.status === "streaming" && (
+          <div>
+            {state.analysis.trim() === "" ? (
+              // chưa có byte nội dung (model đang "thinking") -> skeleton
+              <div className="space-y-3 p-5">
+                <p className="wide font-mono text-[0.68rem] uppercase tracking-[0.18em] text-soft">
+                  Đang phân tích hồ sơ…
+                </p>
+                <div className="skeleton h-4 w-3/4" />
+                <div className="skeleton h-4 w-full" />
+                <div className="skeleton h-4 w-5/6" />
+                <div className="skeleton h-4 w-2/3" />
+              </div>
+            ) : (
+              <>
+                <div className="flex flex-wrap items-center justify-between gap-3 border-b border-line bg-field/50 px-5 py-3">
+                  <p className="wide font-mono text-[0.66rem] uppercase tracking-[0.18em] text-soft">
+                    Báo cáo thẩm định
+                  </p>
+                  <p className="flex items-center gap-2 font-mono text-[0.66rem] uppercase tracking-[0.18em] text-moss-deep">
+                    <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-moss-deep" />
+                    Đang tạo…
+                  </p>
+                </div>
+                <div className="p-5">
+                  <MarkdownLite text={state.analysis} />
+                  <span className="ml-0.5 inline-block h-4 w-[2px] animate-pulse bg-moss-deep align-middle" />
+                </div>
+              </>
+            )}
           </div>
         )}
 

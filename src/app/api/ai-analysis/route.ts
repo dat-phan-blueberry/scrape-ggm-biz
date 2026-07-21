@@ -1,5 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 
+// Stream token-by-token (kiểu GPT) để tránh "Inactivity Timeout" của proxy:
+// luôn có byte chảy về client trong suốt quá trình sinh nội dung.
+export const runtime = "nodejs";
+export const dynamic = "force-dynamic";
+export const maxDuration = 60;
+
 // gemini-3.1-pro-preview không khả dụng ở free tier (limit = 0, luôn 429).
 // Dùng chuỗi dự phòng: model đầu quá tải (503/429) thì tự chuyển model sau.
 const MODELS = ["gemini-3.5-flash", "gemini-3-flash-preview", "gemini-flash-latest"];
@@ -83,57 +89,113 @@ Trả lời bằng TIẾNG VIỆT, dùng markdown với đúng các mục sau:
 
 Viết súc tích, dựa trên số liệu, không chung chung.`;
 
-  let lastStatus = 500;
-  for (const model of MODELS) {
-    try {
-      const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${apiKey}`;
+  const requestBody = JSON.stringify({
+    contents: [{ parts: [{ text: prompt }] }],
+    generationConfig: {
+      temperature: 0.4,
+      topP: 0.95,
+      // model có thinking: phần suy nghĩ cũng tính vào giới hạn này
+      maxOutputTokens: 8192,
+    },
+  });
 
-      const res = await fetch(url, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({
-          contents: [{ parts: [{ text: prompt }] }],
-          generationConfig: {
-            temperature: 0.4,
-            topP: 0.95,
-            // model có thinking: phần suy nghĩ cũng tính vào giới hạn này
-            maxOutputTokens: 8192,
-          },
-        }),
-      });
+  const encoder = new TextEncoder();
 
-      const data = await res.json();
-      if (!res.ok) {
-        console.error(`[ai-analysis] ${model} error:`, res.status, data?.error?.message);
-        lastStatus = res.status;
-        // quá tải / hết hạn mức: thử model kế tiếp
-        if (res.status === 503 || res.status === 429 || res.status === 500) continue;
-        return NextResponse.json(
-          { error: `Dịch vụ phân tích trả về lỗi (${res.status}). Thử lại sau ít phút.` },
-          { status: res.status }
-        );
+  const stream = new ReadableStream<Uint8Array>({
+    async start(controller) {
+      // Client protocol (SSE):
+      //   : ping           -> keepalive (bỏ qua ở client), giữ kết nối khi model "thinking"
+      //   data: {"text"}   -> một đoạn nội dung
+      //   data: {"error"}  -> lỗi
+      //   data: [DONE]     -> kết thúc
+      const sendData = (obj: unknown) =>
+        controller.enqueue(encoder.encode(`data: ${JSON.stringify(obj)}\n\n`));
+      const ping = () => controller.enqueue(encoder.encode(`: ping\n\n`));
+
+      // Mở kết nối ngay để proxy thấy có byte -> không bị Inactivity Timeout.
+      ping();
+
+      let sentAny = false;
+      let lastStatus = 500;
+
+      for (const model of MODELS) {
+        try {
+          const url = `https://generativelanguage.googleapis.com/v1beta/models/${model}:streamGenerateContent?alt=sse&key=${apiKey}`;
+          const res = await fetch(url, {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: requestBody,
+          });
+
+          if (!res.ok || !res.body) {
+            lastStatus = res.status;
+            const errText = await res.text().catch(() => "");
+            console.error(`[ai-analysis] ${model} error:`, res.status, errText.slice(0, 300));
+            // quá tải / hết hạn mức: thử model kế tiếp (chưa gửi text nên an toàn)
+            continue;
+          }
+
+          const reader = res.body.getReader();
+          const decoder = new TextDecoder();
+          let buffer = "";
+
+          // Đọc SSE từ Gemini, tách theo dòng, forward phần text về client.
+          while (true) {
+            const { done, value } = await reader.read();
+            if (done) break;
+            buffer += decoder.decode(value, { stream: true });
+
+            let nl: number;
+            while ((nl = buffer.indexOf("\n")) >= 0) {
+              const line = buffer.slice(0, nl).trim();
+              buffer = buffer.slice(nl + 1);
+              if (!line.startsWith("data:")) continue;
+              const payload = line.slice(5).trim();
+              if (!payload || payload === "[DONE]") continue;
+              try {
+                const json = JSON.parse(payload);
+                const parts = json.candidates?.[0]?.content?.parts || [];
+                for (const p of parts) {
+                  if (typeof p.text === "string" && !p.thought) {
+                    sendData({ text: p.text });
+                    sentAny = true;
+                  } else {
+                    // phần "thinking" hoặc chunk rỗng -> keepalive
+                    ping();
+                  }
+                }
+              } catch {
+                /* chunk chưa hoàn chỉnh hoặc không parse được -> bỏ qua */
+              }
+            }
+          }
+
+          if (sentAny) break; // xong, không cần model dự phòng
+          lastStatus = 502; // stream ok nhưng rỗng -> thử model kế tiếp
+        } catch (e) {
+          console.error(`[ai-analysis] ${model} stream failed:`, e);
+          if (sentAny) break; // đã stream dở -> dừng, tránh trùng nội dung
+          lastStatus = 500;
+        }
       }
 
-      const parts = data.candidates?.[0]?.content?.parts || [];
-      const text = parts
-        .filter((p: any) => typeof p.text === "string" && !p.thought)
-        .map((p: any) => p.text)
-        .join("\n")
-        .trim();
-
-      if (!text) {
-        lastStatus = 502;
-        continue;
+      if (!sentAny) {
+        sendData({
+          error: `Dịch vụ phân tích đang quá tải (${lastStatus}). Thử lại sau ít phút.`,
+        });
       }
+      controller.enqueue(encoder.encode("data: [DONE]\n\n"));
+      controller.close();
+    },
+  });
 
-      return NextResponse.json({ analysis: text });
-    } catch {
-      lastStatus = 500;
-    }
-  }
-
-  return NextResponse.json(
-    { error: "Dịch vụ phân tích đang quá tải. Thử lại sau ít phút." },
-    { status: lastStatus }
-  );
+  return new Response(stream, {
+    headers: {
+      "Content-Type": "text/event-stream; charset=utf-8",
+      "Cache-Control": "no-cache, no-transform",
+      Connection: "keep-alive",
+      // tắt buffering ở proxy (Netlify/nginx) để chunk tới client ngay
+      "X-Accel-Buffering": "no",
+    },
+  });
 }
