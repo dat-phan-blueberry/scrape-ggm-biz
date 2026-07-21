@@ -107,8 +107,9 @@ Deno.serve(async (req: Request) => {
       temperature: 0.4,
       topP: 0.95,
       maxOutputTokens: 8192,
-      // tắt thinking -> trả chữ ngay, first token nhanh
-      thinkingConfig: { thinkingBudget: 0 },
+      // KHÔNG tắt thinking ở đây: Supabase stream được + gửi ": ping"
+      // keepalive lúc model suy nghĩ nên không bị timeout như Netlify.
+      // Để mặc định (thinking bật) -> phục hồi chất lượng phân tích.
     },
   });
 
