@@ -165,29 +165,79 @@ export default function HomePage() {
   const runAiAudit = async () => {
     if (!profile) return;
     setAi({ status: "streaming", analysis: "" });
+
+    // Ưu tiên Supabase Edge Function (stream SSE thật). Nếu không cấu hình
+    // thì fallback về API route nội bộ (/api/ai-analysis, trả JSON).
+    const endpoint =
+      process.env.NEXT_PUBLIC_AI_ANALYSIS_URL?.trim() || "/api/ai-analysis";
+
     try {
-      const res = await fetch("/api/ai-analysis", {
+      const res = await fetch(endpoint, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ profile }),
       });
+
+      const contentType = res.headers.get("content-type") || "";
+      const isStream = contentType.includes("text/event-stream") && !!res.body;
+
+      // ---- Trường hợp 1: SSE thật (Supabase) -> hiện chữ theo từng chunk ----
+      if (isStream) {
+        const reader = res.body!.getReader();
+        const decoder = new TextDecoder();
+        let buffer = "";
+        let acc = "";
+        let errMsg: string | null = null;
+
+        while (true) {
+          const { done, value } = await reader.read();
+          if (done) break;
+          buffer += decoder.decode(value, { stream: true });
+
+          let nl: number;
+          while ((nl = buffer.indexOf("\n")) >= 0) {
+            const line = buffer.slice(0, nl).trim();
+            buffer = buffer.slice(nl + 1);
+            if (!line.startsWith("data:")) continue; // bỏ qua ": ping"
+            const payload = line.slice(5).trim();
+            if (!payload || payload === "[DONE]") continue;
+            try {
+              const obj = JSON.parse(payload);
+              if (obj.error) {
+                errMsg = obj.error;
+              } else if (typeof obj.text === "string") {
+                acc += obj.text;
+                setAi({ status: "streaming", analysis: acc });
+              }
+            } catch {
+              /* chunk chưa hoàn chỉnh -> bỏ qua */
+            }
+          }
+        }
+
+        if (acc.trim()) setAi({ status: "done", analysis: acc });
+        else
+          setAi({
+            status: "error",
+            message: errMsg || "Không nhận được nội dung phân tích.",
+          });
+        return;
+      }
+
+      // ---- Trường hợp 2: JSON (API route Netlify) -> typewriter ở client ----
       const data = await res.json();
       if (!res.ok || data.error) {
         setAi({ status: "error", message: data.error || `Lỗi ${res.status}` });
         return;
       }
-
       const full: string = data.analysis ?? "";
       if (!full.trim()) {
         setAi({ status: "error", message: "Không nhận được nội dung phân tích." });
         return;
       }
-
-      // Hiệu ứng "gõ chữ kiểu GPT" ở phía client: hiện nội dung dần cho mượt.
-      // (Server trả JSON một lần vì Netlify edge buffer/nén stream SSE.)
       await new Promise<void>((resolve) => {
         let i = 0;
-        const step = Math.max(3, Math.round(full.length / 220)); // ~3.5s tổng
+        const step = Math.max(3, Math.round(full.length / 220)); // ~3.5s
         const timer = window.setInterval(() => {
           i = Math.min(full.length, i + step);
           setAi({ status: "streaming", analysis: full.slice(0, i) });
@@ -197,7 +247,6 @@ export default function HomePage() {
           }
         }, 16);
       });
-
       setAi({ status: "done", analysis: full });
     } catch {
       setAi({ status: "error", message: "Không kết nối được máy chủ." });
