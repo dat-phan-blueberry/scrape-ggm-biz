@@ -94,8 +94,11 @@ Viết súc tích, dựa trên số liệu, không chung chung.`;
     generationConfig: {
       temperature: 0.4,
       topP: 0.95,
-      // model có thinking: phần suy nghĩ cũng tính vào giới hạn này
       maxOutputTokens: 8192,
+      // TẮT thinking: trả chữ ngay lập tức (time-to-first-token thấp) để
+      // Netlify không kill function khi model còn đang "suy nghĩ", đồng thời
+      // không phí token cho phần thought (ta vốn đã lọc bỏ ở dưới).
+      thinkingConfig: { thinkingBudget: 0 },
     },
   });
 
