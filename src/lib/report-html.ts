@@ -287,11 +287,20 @@ ${markdownToHtml(analysis)}
 </html>`;
 }
 
-/** Mở cửa sổ xem trước báo cáo; trả về false nếu popup bị chặn */
+/**
+ * Mở cửa sổ xem trước báo cáo; trả về false nếu popup bị chặn.
+ * Điều hướng thật tới một blob URL (thay vì document.write trên about:blank) —
+ * nếu không, hộp thoại "Save as PDF" của Chrome/Edge sẽ không tự đặt tên file
+ * theo <title> vì tab chưa từng "navigate" tới đâu cả.
+ */
 export function openAuditReport(input: AuditReportInput): boolean {
-  const win = window.open("", "_blank");
-  if (!win) return false;
-  win.document.write(buildAuditReportHtml(input));
-  win.document.close();
+  const blob = new Blob([buildAuditReportHtml(input)], { type: "text/html" });
+  const url = URL.createObjectURL(blob);
+  const win = window.open(url, "_blank");
+  if (!win) {
+    URL.revokeObjectURL(url);
+    return false;
+  }
+  win.addEventListener("load", () => URL.revokeObjectURL(url), { once: true });
   return true;
 }
