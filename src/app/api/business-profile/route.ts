@@ -6,6 +6,7 @@ import type {
   ExtensionGroup,
   UserReview,
 } from "@/lib/types";
+import { serpApiSearch, SerpApiError } from "@/lib/serpapi";
 
 /** hours từ SerpAPI là mảng các object 1 khóa: [{"thứ năm": "06:00–23:00"}, ...] */
 function normalizeHours(raw: unknown): DayHours[] {
@@ -92,15 +93,9 @@ export async function GET(request: NextRequest) {
     return NextResponse.json({ error: "Cần data_id hoặc place_id" }, { status: 400 });
   }
 
-  const apiKey = process.env.SERPAPI_KEY;
-  if (!apiKey) {
-    return NextResponse.json({ error: "Máy chủ chưa cấu hình nguồn dữ liệu (.env)" }, { status: 500 });
-  }
-
   const params = new URLSearchParams({
     engine: "google_maps",
     type: "place",
-    api_key: apiKey,
     hl: "vi",
   });
   if (dataId) {
@@ -111,15 +106,8 @@ export async function GET(request: NextRequest) {
   }
 
   try {
-    const res = await fetch(`https://serpapi.com/search.json?${params.toString()}`);
-    const data = await res.json();
-    if (!res.ok || data.error) {
-      console.error("[business-profile] SerpAPI error:", res.status, data.error);
-      return NextResponse.json(
-        { error: `Nguồn dữ liệu trả về lỗi (${res.status})` },
-        { status: res.ok ? 500 : res.status }
-      );
-    }
+    // Key do pool cấp; hết hạn mức thì tự xoay sang key kế tiếp.
+    const data = await serpApiSearch(params, "business-profile");
 
     const pr = data.place_results || {};
 
@@ -196,7 +184,10 @@ export async function GET(request: NextRequest) {
     };
 
     return NextResponse.json({ profile, raw: data });
-  } catch {
+  } catch (error) {
+    if (error instanceof SerpApiError) {
+      return NextResponse.json({ error: error.userMessage }, { status: error.status });
+    }
     return NextResponse.json({ error: "Không kết nối được nguồn dữ liệu" }, { status: 500 });
   }
 }

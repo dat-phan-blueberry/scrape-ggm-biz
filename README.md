@@ -19,6 +19,39 @@ SERPAPI_KEY=...              # https://serpapi.com — lấy dữ liệu Google 
 GOOGLE_AI_STUDIO_API_KEY=... # https://aistudio.google.com — chạy thẩm định AI
 ```
 
+### Nhiều key SerpAPI (xoay key tự động)
+
+Free tier SerpAPI chỉ 100 lượt/tháng, nên `SERPAPI_KEY` nhận **nhiều key**. Hai
+cách khai, chọn cái nào cũng được:
+
+```env
+# cách 1 — một biến, phân cách bằng phẩy
+SERPAPI_KEY=key_1,key_2,key_3,key_4
+
+# cách 2 — mỗi key một biến
+SERPAPI_KEY=key_1
+SERPAPI_KEY_2=key_2
+SERPAPI_KEY_3=key_3
+SERPAPI_KEY_4=key_4
+```
+
+Cách xoay (`src/lib/key-pool.ts`):
+
+- Dùng **cạn từng key** theo thứ tự, không rải đều — hạn mức tính theo tổng lượt
+  nên dùng hết key 1 rồi mới sang key 2 thì dễ theo dõi hơn.
+- Key báo hết hạn mức bị **ném xuống cuối hàng đợi** và cho nghỉ **24h**; request
+  đang dở tự thử lại ngay bằng key kế tiếp nên người dùng không thấy lỗi.
+- Bị *throttle* (gửi quá nhanh) chỉ nghỉ **1 phút** — đó không phải hết hạn mức.
+- Lỗi không thuộc về key (ví dụ `data_id` sai, SerpAPI 500) **không** làm key bị
+  phạt, tránh chuyện một truy vấn lỗi đốt sạch cả bốn key.
+- Hết cooldown thì key tự sống lại. Cooldown được ghi ra `.key-pool-state.*.json`
+  (đã gitignore, chỉ chứa **dấu tay băm** của key chứ không chứa key) nên restart
+  server không xoá sạch trạng thái.
+- Xem còn mấy key sống: `GET /api/key-status` — trả nhãn đã che (`#2…a1b2`), lý do
+  nghỉ và giờ mở lại. Không bao giờ trả key thật.
+
+Khi cả bốn key đều nghỉ, API trả 429 kèm câu nói rõ giờ hạn mức mở lại.
+
 ## Luồng hoạt động
 
 1. **Tìm kiếm** — `GET /api/autocomplete?q=...` gọi SerpAPI engine

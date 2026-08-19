@@ -5,3 +5,6 @@ out/
 *.tsbuildinfo
 next-env.d.ts
 .playwright-mcp/
+
+# state cooldown cua key pool (chua secret dang bam, khong commit)
+.key-pool-state.*.json
