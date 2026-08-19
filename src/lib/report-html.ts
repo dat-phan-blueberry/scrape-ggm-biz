@@ -13,6 +13,20 @@ function escapeHtml(s: string): string {
     .replace(/"/g, "&quot;");
 }
 
+/**
+ * Tên nhà hàng lấy từ Google Maps có thể chứa ký tự không hợp lệ trong tên file
+ * Windows (\ / : * ? " < > |) — ví dụ giờ mở cửa "24/7" hoặc phụ đề sau dấu ":".
+ * Nếu <title> chứa các ký tự này, hộp thoại "Save Print Output As" (driver
+ * Microsoft Print to PDF) không tự lược bỏ mà để trống hẳn ô tên file.
+ * Dùng bản đã làm sạch này riêng cho <title>; nội dung hiển thị vẫn giữ tên gốc.
+ */
+function sanitizeForFilename(s: string): string {
+  return s
+    .replace(/[\\/:*?"<>|]/g, "-")
+    .replace(/\s+/g, " ")
+    .trim();
+}
+
 /** *nhấn* và `mã` trong một đoạn đã escape */
 function inlineLight(text: string): string {
   return text
@@ -114,13 +128,14 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
     year: "numeric",
   });
   const safeName = escapeHtml(restaurant);
+  const fileSafeName = escapeHtml(sanitizeForFilename(restaurant));
 
   return `<!DOCTYPE html>
 <html lang="vi">
 <head>
 <meta charset="utf-8" />
 <meta name="viewport" content="width=device-width, initial-scale=1" />
-<title>GoDine Audit — ${safeName}</title>
+<title>GoDine Audit — ${fileSafeName}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
 <link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Be+Vietnam+Pro:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
