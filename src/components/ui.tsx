@@ -268,7 +268,7 @@ function inlineLight(text: string, keyBase: string): React.ReactNode[] {
 }
 
 function inlineMd(text: string, keyBase: string): React.ReactNode[] {
-  return text.split(/\*\*(.+?)\*\*/g).flatMap((part, i) =>
+  return text.split(/\*\*(.+?)\*\*/g).flatMap<React.ReactNode>((part, i) =>
     i % 2 === 1
       ? [
           <strong key={`${keyBase}-${i}`} className="font-semibold text-ink">

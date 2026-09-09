@@ -132,7 +132,7 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
   });
   const safeName = escapeHtml(restaurant);
   const fileSafeName = escapeHtml(sanitizeForFilename(restaurant));
-  const validatedScore = score ? parseAndValidateScore(score) : parseAndValidateScore(cleanAnalysis);
+  const validatedScore = parseAndValidateScore(cleanAnalysis);
 
   return `<!DOCTYPE html>
 <html lang="vi">

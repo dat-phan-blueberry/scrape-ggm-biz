@@ -10,6 +10,8 @@ import {
   saveVenueAuditMemory,
   clearVenueAuditMemory,
   parseAndValidateScore,
+  reportValidationError,
+  splitRefinement,
 } from "@/lib/types";
 import {
   Chip,
@@ -263,7 +265,7 @@ export default function HomePage() {
         }
 
         const validScore = parseAndValidateScore(acc);
-        if (acc.trim() && acc.length >= 300 && validScore) {
+        if (!errMsg && acc.trim() && acc.length >= 300 && validScore && !reportValidationError(acc)) {
           setAi({ status: "done", analysis: acc });
           const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
           if (targetDataId) {
@@ -291,8 +293,8 @@ export default function HomePage() {
         return;
       }
       const full: string = data.analysis ?? "";
-      if (!full.trim()) {
-        setAi({ status: "error", message: "Không nhận được nội dung phân tích." });
+      if (!full.trim() || reportValidationError(full)) {
+        setAi({ status: "error", message: "Báo cáo chưa đầy đủ hoặc điểm không đúng thang 0–10. Vui lòng thử lại." });
         return;
       }
       await new Promise<void>((resolve) => {
@@ -355,7 +357,29 @@ export default function HomePage() {
           }),
         });
 
-        const data = await res.json();
+        let data;
+        if (res.headers.get("content-type")?.includes("text/event-stream") && res.body) {
+          const streamText = await res.text();
+          let text = "";
+          let error = "";
+          for (const line of streamText.split(/\r?\n/)) {
+            if (!line.startsWith("data:")) continue;
+            const payload = line.slice(5).trim();
+            if (!payload || payload === "[DONE]") continue;
+            const event = JSON.parse(payload);
+            if (event.error) error = event.error;
+            if (typeof event.text === "string") text += event.text;
+          }
+          const refinement = splitRefinement(text);
+          data = error ? { error } : refinement
+            ? { ...refinement, analysis: refinement.updatedAnalysis ?? ai.analysis }
+            : { error: "Phản hồi chưa hoàn chỉnh. Vui lòng thử lại." };
+        } else {
+          data = await res.json();
+        }
+        if (!data.error && reportValidationError(data.updatedAnalysis || data.analysis || ai.analysis)) {
+          data = { error: "Báo cáo chưa đầy đủ hoặc điểm không đúng thang 0–10. Vui lòng thử lại." };
+        }
         if (!res.ok || data.error) {
           const errorMsg: ChatMessage = {
             id: `model-${Date.now()}`,
