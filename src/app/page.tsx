@@ -1,7 +1,16 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import type { BusinessProfile, SimilarPlace, Suggestion } from "@/lib/types";
+import {
+  type BusinessProfile,
+  type ChatMessage,
+  type SimilarPlace,
+  type Suggestion,
+  getVenueAuditMemory,
+  saveVenueAuditMemory,
+  clearVenueAuditMemory,
+  parseAndValidateScore,
+} from "@/lib/types";
 import {
   Chip,
   DossierSkeleton,
@@ -44,12 +53,38 @@ export default function HomePage() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState("");
   const [ai, setAi] = useState<AiState>({ status: "idle" });
+  const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
+  const [isRefining, setIsRefining] = useState(false);
+  const [currentUser, setCurrentUser] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
   const lastFetchRef = useRef<{ dataId: string; lat: number | null; lng: number | null } | null>(null);
+
+  /* ---------- Thông tin người dùng & Đăng xuất ---------- */
+
+  useEffect(() => {
+    fetch("/api/auth/me")
+      .then((res) => (res.ok ? res.json() : null))
+      .then((data) => {
+        if (data?.user?.email) {
+          setCurrentUser(data.user.email);
+        }
+      })
+      .catch(() => {});
+  }, []);
+
+  const handleLogout = async () => {
+    try {
+      await fetch("/api/auth/logout", { method: "POST" });
+    } catch {
+      // Bỏ qua lỗi kết nối và chuyển hướng
+    } finally {
+      window.location.href = "/login";
+    }
+  };
 
   /* ---------- Gợi ý tìm kiếm ---------- */
 
@@ -115,6 +150,8 @@ export default function HomePage() {
       setProfile(null);
       setRaw(null);
       setAi({ status: "idle" });
+      setChatMessages([]);
+      setIsRefining(false);
       window.scrollTo({ top: 0, behavior: "smooth" });
       try {
         const params = new URLSearchParams({ data_id: dataId });
@@ -127,6 +164,16 @@ export default function HomePage() {
         } else {
           setProfile(data.profile);
           setRaw(data.raw);
+
+          // Khôi phục bộ nhớ ẩn (chat history & các quyết định chỉnh sửa) của riêng nhà hàng này
+          const memory = getVenueAuditMemory(dataId);
+          if (memory && memory.analysis) {
+            setAi({ status: "done", analysis: memory.analysis });
+            setChatMessages(memory.messages || []);
+          } else {
+            setAi({ status: "idle" });
+            setChatMessages([]);
+          }
         }
       } catch {
         setError("Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.");
@@ -215,12 +262,25 @@ export default function HomePage() {
           }
         }
 
-        if (acc.trim()) setAi({ status: "done", analysis: acc });
-        else
+        const validScore = parseAndValidateScore(acc);
+        if (acc.trim() && acc.length >= 300 && validScore) {
+          setAi({ status: "done", analysis: acc });
+          const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
+          if (targetDataId) {
+            saveVenueAuditMemory(targetDataId, {
+              dataId: targetDataId,
+              title: profile.title,
+              lastUpdated: Date.now(),
+              analysis: acc,
+              messages: [],
+            });
+          }
+        } else {
           setAi({
             status: "error",
-            message: errMsg || "Không nhận được nội dung phân tích.",
+            message: errMsg || "Quá trình phân tích bị gián đoạn giữa chừng do đường truyền AI. Vui lòng bấm Thử lại để tải đầy đủ bản báo cáo.",
           });
+        }
         return;
       }
 
@@ -248,10 +308,120 @@ export default function HomePage() {
         }, 16);
       });
       setAi({ status: "done", analysis: full });
+      const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
+      if (targetDataId) {
+        saveVenueAuditMemory(targetDataId, {
+          dataId: targetDataId,
+          title: profile.title,
+          lastUpdated: Date.now(),
+          analysis: full,
+          messages: [],
+        });
+      }
     } catch {
       setAi({ status: "error", message: "Không kết nối được máy chủ." });
     }
   };
+
+  /* ---------- Cải thiện/sửa đổi báo cáo qua chat ---------- */
+
+  const handleRefine = useCallback(
+    async (instruction: string) => {
+      if (!profile || ai.status !== "done") return;
+      const userMsg: ChatMessage = {
+        id: `user-${Date.now()}`,
+        role: "user",
+        content: instruction,
+        timestamp: Date.now(),
+      };
+      const updatedMessages = [...chatMessages, userMsg];
+      setChatMessages(updatedMessages);
+      setIsRefining(true);
+
+      const endpoint =
+        process.env.NEXT_PUBLIC_AI_ANALYSIS_URL?.trim() || "/api/ai-analysis";
+
+      try {
+        const res = await fetch(endpoint, {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({
+            profile,
+            currentAnalysis: ai.analysis,
+            messages: updatedMessages.map((m) => ({
+              role: m.role,
+              content: m.content,
+            })),
+          }),
+        });
+
+        const data = await res.json();
+        if (!res.ok || data.error) {
+          const errorMsg: ChatMessage = {
+            id: `model-${Date.now()}`,
+            role: "model",
+            content: `Chưa thể cập nhật: ${data.error || `Lỗi ${res.status}`}`,
+            timestamp: Date.now(),
+          };
+          setChatMessages([...updatedMessages, errorMsg]);
+        } else {
+          const targetReport: string = (data.updatedAnalysis || data.analysis || ai.analysis || "").trim();
+          if (targetReport && targetReport !== ai.analysis) {
+            setAi({ status: "done", analysis: targetReport });
+          }
+
+          const botResponse =
+            data.reply?.trim() ||
+            (data.updatedAnalysis
+              ? `Đã cập nhật báo cáo theo yêu cầu: "${instruction}"`
+              : "Đã tiếp nhận và xử lý yêu cầu của bạn.");
+
+          const modelMsg: ChatMessage = {
+            id: `model-${Date.now()}`,
+            role: "model",
+            content: botResponse,
+            timestamp: Date.now(),
+          };
+          const finalMessages = [...updatedMessages, modelMsg];
+          setChatMessages(finalMessages);
+
+          // Tự động append và lưu ngầm toàn bộ lịch sử chỉnh sửa & quyết định của nhà hàng
+          const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
+          if (targetDataId) {
+            saveVenueAuditMemory(targetDataId, {
+              dataId: targetDataId,
+              title: profile.title,
+              lastUpdated: Date.now(),
+              analysis: targetReport || ai.analysis,
+              messages: finalMessages,
+            });
+          }
+        }
+      } catch {
+        const errorMsg: ChatMessage = {
+          id: `model-${Date.now()}`,
+          role: "model",
+          content: "Lỗi kết nối khi gửi yêu cầu chỉnh sửa. Vui lòng thử lại.",
+          timestamp: Date.now(),
+        };
+        setChatMessages([...updatedMessages, errorMsg]);
+      } finally {
+        setIsRefining(false);
+      }
+    },
+    [profile, ai, chatMessages]
+  );
+
+  /* ---------- Đặt lại / Khảo sát lại từ đầu ---------- */
+
+  const handleResetAudit = useCallback(() => {
+    const targetDataId = profile?.data_id || lastFetchRef.current?.dataId;
+    if (targetDataId) {
+      clearVenueAuditMemory(targetDataId);
+    }
+    setChatMessages([]);
+    setAi({ status: "idle" });
+  }, [profile]);
 
   /* ---------- Bàn phím cho dropdown ---------- */
 
@@ -291,9 +461,28 @@ export default function HomePage() {
               hồ sơ quán từ Google Maps
             </span>
           </div>
-          <span className="wide ml-auto hidden rounded-md border border-line px-2 py-1 font-mono text-[0.62rem] uppercase tracking-[0.14em] text-soft md:inline">
-            Khảo sát F&B
-          </span>
+          <div className="ml-auto flex items-center gap-2 sm:gap-3">
+            <span className="wide hidden rounded-md border border-line px-2 py-1 font-mono text-[0.62rem] uppercase tracking-[0.14em] text-soft md:inline">
+              Khảo sát F&B
+            </span>
+            {currentUser && (
+              <div className="flex items-center gap-2 border-l border-line pl-2 sm:pl-3">
+                <span
+                  className="max-w-[130px] truncate font-mono text-[0.72rem] text-soft sm:max-w-[200px]"
+                  title={currentUser}
+                >
+                  {currentUser}
+                </span>
+                <button
+                  onClick={handleLogout}
+                  className="rounded-lg border border-line bg-card px-2 py-1 font-mono text-[0.68rem] font-medium text-soft transition-colors hover:border-pin/40 hover:bg-pin/5 hover:text-pin"
+                  title="Đăng xuất khỏi hệ thống"
+                >
+                  Đăng xuất
+                </button>
+              </div>
+            )}
+          </div>
         </div>
       </header>
 
@@ -516,6 +705,10 @@ export default function HomePage() {
                   state={ai}
                   onRun={runAiAudit}
                   restaurant={profile.title || selectedName}
+                  onRefine={handleRefine}
+                  isRefining={isRefining}
+                  chatMessages={chatMessages}
+                  onResetAudit={handleResetAudit}
                 />
                 <RawJsonSection raw={raw} />
               </div>

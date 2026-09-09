@@ -63,6 +63,14 @@ export const IconSparkle = icon(
   <path d="M12 3.5l1.9 5.3 5.3 1.9-5.3 1.9L12 17.9l-1.9-5.3-5.3-1.9 5.3-1.9L12 3.5zM19 16.5l.8 2.2 2.2.8-2.2.8-.8 2.2-.8-2.2-2.2-.8 2.2-.8.8-2.2z" />
 );
 
+export const IconSend = icon(
+  <path d="m22 2-7 20-4-9-9-4 20-7zM22 2 11 13" />
+);
+
+export const IconCheck = icon(
+  <path d="M20 6 9 17l-5-5" />
+);
+
 export const IconChevron = icon(<path d="m6 9 6 6 6-6" />);
 
 export const IconDownload = icon(

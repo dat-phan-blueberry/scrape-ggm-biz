@@ -4,13 +4,16 @@ import { useState } from "react";
 import type {
   BusinessProfile,
   BusynessSlot,
+  ChatMessage,
   SimilarPlace,
   UserReview,
 } from "@/lib/types";
+import { parseAndValidateScore } from "@/lib/types";
 import {
   Chip,
   IconCamera,
   IconChart,
+  IconCheck,
   IconClock,
   IconCompass,
   IconDownload,
@@ -18,6 +21,7 @@ import {
   IconMessage,
   IconPhone,
   IconPin,
+  IconSend,
   IconSparkle,
   IconUsers,
   IconUtensils,
@@ -589,18 +593,36 @@ export type AiState =
   | { status: "done"; analysis: string }
   | { status: "error"; message: string };
 
+const QUICK_SUGGESTIONS = [
+  "🎯 Nhấn mạnh thiếu Text Menu ảnh hưởng SEO",
+  "📋 Rút ngắn báo cáo (vừa 1 trang in)",
+  "🤝 Viết giọng tư vấn gửi trực tiếp chủ quán",
+  "🏷️ Bổ sung khuyến nghị kênh Đặt bàn",
+  "⭐ Đánh giá lại điểm cạnh tranh khách quan",
+];
+
 export function AiAuditSection({
   state,
   onRun,
   restaurant,
+  onRefine,
+  isRefining = false,
+  chatMessages = [],
+  onResetAudit,
 }: {
   state: AiState;
   onRun: () => void;
   restaurant: string;
+  onRefine?: (instruction: string) => Promise<void>;
+  isRefining?: boolean;
+  chatMessages?: ChatMessage[];
+  onResetAudit?: () => void;
 }) {
+  const [chatInput, setChatInput] = useState("");
+
   const score =
     state.status === "done"
-      ? state.analysis.match(/(\d+(?:[.,]\d+)?)\s*\/\s*10/)?.[1]?.replace(",", ".")
+      ? parseAndValidateScore(state.analysis)
       : null;
 
   const exportPdf = () => {
@@ -616,14 +638,27 @@ export function AiAuditSection({
     }
   };
 
+  const handleSendChat = async (e?: React.FormEvent) => {
+    e?.preventDefault();
+    const text = chatInput.trim();
+    if (!text || isRefining || !onRefine) return;
+    setChatInput("");
+    await onRefine(text);
+  };
+
+  const handleQuickPrompt = async (prompt: string) => {
+    if (isRefining || !onRefine) return;
+    await onRefine(prompt);
+  };
+
   return (
     <Section title="Thẩm định hồ sơ" icon={IconSparkle} meta="đánh giá hiện diện Google Maps">
       <div className="overflow-hidden rounded-xl border border-line bg-card shadow-card">
         {state.status === "idle" && (
           <div className="flex flex-col items-start gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
             <p className="max-w-[46ch] text-[0.83rem] leading-relaxed text-soft">
-              Chạy bản thẩm định tự động: điểm mạnh, thiếu sót và những việc quán cần làm để
-              cải thiện hiện diện trên Google Maps.
+              Chạy bản thẩm định tự động: chuẩn hóa rubric thang 10, phân tích SEO Text Menu,
+              kiểm tra địa giới sau sáp nhập và gợi ý hành động.
             </p>
             <button
               onClick={onRun}
@@ -702,12 +737,34 @@ export function AiAuditSection({
               <p className="wide font-mono text-[0.66rem] uppercase tracking-[0.18em] text-soft">
                 Báo cáo thẩm định
               </p>
-              <div className="flex items-center gap-4">
+              <div className="flex flex-wrap items-center gap-3">
+                {chatMessages.length > 0 && (
+                  <span
+                    className="inline-flex items-center gap-1.5 rounded-full bg-moss/10 px-2.5 py-1 font-mono text-[0.66rem] font-medium text-moss-deep"
+                    title="Gemini đã ghi nhớ lịch sử trao đổi và các quyết định chỉnh sửa của bạn cho nhà hàng này"
+                  >
+                    <span className="h-1.5 w-1.5 rounded-full bg-moss-deep" />
+                    Đã lưu {Math.floor(chatMessages.length / 2)} quyết định
+                  </span>
+                )}
                 {score && (
                   <p className="flex items-baseline gap-1 font-display">
                     <span className="wider text-xl font-extrabold text-moss-deep">{score}</span>
                     <span className="font-mono text-[0.66rem] text-soft">/10 cạnh tranh</span>
                   </p>
+                )}
+                {onResetAudit && (
+                  <button
+                    onClick={() => {
+                      if (window.confirm("Bạn có chắc muốn đặt lại? Toàn bộ lịch sử trao đổi và chỉnh sửa của nhà hàng này sẽ được làm mới.")) {
+                        onResetAudit();
+                      }
+                    }}
+                    className="inline-flex items-center gap-1 rounded-lg border border-line bg-card px-2.5 py-1.5 text-[0.72rem] font-medium text-soft shadow-card transition-colors hover:border-pin/50 hover:text-pin"
+                    title="Xóa lịch sử chat và phân tích lại từ đầu"
+                  >
+                    Làm mới
+                  </button>
                 )}
                 <button
                   onClick={exportPdf}
@@ -718,8 +775,99 @@ export function AiAuditSection({
                 </button>
               </div>
             </div>
+
             <div className="p-5">
               <MarkdownLite text={state.analysis} />
+            </div>
+
+            {/* ===== KHU VỰC CHAT CẢI THIỆN BÁO CÁO ===== */}
+            <div className="border-t border-line bg-field/30 p-5">
+              <div className="flex flex-wrap items-center justify-between gap-2">
+                <div className="flex items-center gap-2">
+                  <IconMessage className="h-4 w-4 text-moss-deep" />
+                  <h3 className="font-display text-[0.8rem] font-bold uppercase tracking-[0.1em] text-ink">
+                    Cải thiện & Chỉnh sửa Báo cáo
+                  </h3>
+                </div>
+                <span className="font-mono text-[0.66rem] text-soft">
+                  Yêu cầu AI điều chỉnh nội dung hoặc nhấn mạnh tiêu chí
+                </span>
+              </div>
+
+              {/* Gợi ý nhanh */}
+              {onRefine && (
+                <div className="mt-3 flex flex-wrap gap-1.5">
+                  {QUICK_SUGGESTIONS.map((q) => (
+                    <button
+                      key={q}
+                      onClick={() => handleQuickPrompt(q)}
+                      disabled={isRefining}
+                      className="rounded-full border border-line bg-card px-2.5 py-1 text-[0.73rem] font-medium text-ink/80 shadow-card transition-colors hover:border-moss/50 hover:text-moss-deep disabled:opacity-50"
+                    >
+                      {q}
+                    </button>
+                  ))}
+                </div>
+              )}
+
+              {/* Lịch sử chat */}
+              {chatMessages.length > 0 && (
+                <div className="thin-scroll mt-3.5 max-h-60 space-y-2.5 overflow-y-auto rounded-lg border border-line bg-card/60 p-3">
+                  {chatMessages.map((m, idx) => (
+                    <div
+                      key={m.id || idx}
+                      className={`flex flex-col text-[0.8rem] ${
+                        m.role === "user" ? "items-end" : "items-start"
+                      }`}
+                    >
+                      <div
+                        className={`max-w-[90%] rounded-lg px-3 py-2 ${
+                          m.role === "user"
+                            ? "bg-moss text-card font-medium"
+                            : "border border-line bg-field/80 text-ink"
+                        }`}
+                      >
+                        {m.role === "user" ? (
+                          m.content
+                        ) : (
+                          <div className="space-y-1">
+                            <p className="flex items-center gap-1 font-mono text-[0.7rem] font-semibold text-moss-deep">
+                              <IconCheck className="h-3 w-3" /> Đã cập nhật vào bản báo cáo
+                            </p>
+                            <p className="text-[0.78rem] text-ink/85">{m.content}</p>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              )}
+
+              {/* Form chat input */}
+              {onRefine && (
+                <form onSubmit={handleSendChat} className="mt-3 flex items-center gap-2">
+                  <input
+                    type="text"
+                    value={chatInput}
+                    onChange={(e) => setChatInput(e.target.value)}
+                    placeholder="Gõ yêu cầu sửa đổi (VD: Nhấn mạnh SEO do thiếu Text Menu, rút gọn báo cáo...)"
+                    disabled={isRefining}
+                    className="min-w-0 flex-1 rounded-lg border border-line bg-card px-3.5 py-2 text-[0.82rem] outline-none transition-shadow focus:border-moss/50 focus:shadow-card disabled:opacity-50"
+                  />
+                  <button
+                    type="submit"
+                    disabled={!chatInput.trim() || isRefining}
+                    className="inline-flex shrink-0 items-center gap-1.5 rounded-lg bg-moss px-3.5 py-2 text-[0.8rem] font-semibold text-card shadow-card transition-colors hover:bg-moss-deep disabled:opacity-40"
+                  >
+                    {isRefining ? (
+                      <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-card border-t-transparent" />
+                    ) : (
+                      <IconSend className="h-3.5 w-3.5" />
+                    )}
+                    <span>{isRefining ? "Đang xử lý…" : "Gửi"}</span>
+                  </button>
+                </form>
+              )}
             </div>
           </div>
         )}

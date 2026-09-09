@@ -113,6 +113,8 @@ function markdownToHtml(md: string): string {
   return out.join("\n");
 }
 
+import { parseAndValidateScore, cleanBusinessReportText } from "@/lib/types";
+
 export interface AuditReportInput {
   restaurant: string;
   analysis: string;
@@ -122,6 +124,7 @@ export interface AuditReportInput {
 }
 
 export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: AuditReportInput): string {
+  const cleanAnalysis = cleanBusinessReportText(analysis);
   const date = new Date().toLocaleDateString("vi-VN", {
     day: "2-digit",
     month: "2-digit",
@@ -129,6 +132,7 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
   });
   const safeName = escapeHtml(restaurant);
   const fileSafeName = escapeHtml(sanitizeForFilename(restaurant));
+  const validatedScore = score ? parseAndValidateScore(score) : parseAndValidateScore(cleanAnalysis);
 
   return `<!DOCTYPE html>
 <html lang="vi">
@@ -138,24 +142,27 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
 <title>GoDine Audit — ${fileSafeName}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com" />
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
-<link href="https://fonts.googleapis.com/css2?family=Archivo:wdth,wght@62..125,100..900&family=Be+Vietnam+Pro:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet" />
+<link href="https://fonts.googleapis.com/css2?family=Be+Vietnam+Pro:ital,wght@0,400;0,500;0,600;0,700;0,800;1,400;1,600&family=IBM+Plex+Mono:wght@400;500;600&display=swap" rel="stylesheet" />
 <style>
   :root {
     --orange: #f1660a;
     --orange-deep: #c14e03;
-    --ink: #21272e;
-    --soft: #6b7280;
-    --line: #e5e7eb;
+    --ink: #111827;
+    --soft: #4b5563;
+    --line: #d1d5db;
     --chip: #f3f4f6;
   }
   * { margin: 0; padding: 0; box-sizing: border-box; }
   html { -webkit-print-color-adjust: exact; print-color-adjust: exact; }
   body {
-    font-family: "Be Vietnam Pro", system-ui, sans-serif;
+    font-family: "Be Vietnam Pro", system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, sans-serif;
     color: var(--ink);
     background: #f0f1f3;
     font-size: 10.5pt;
     line-height: 1.62;
+    -webkit-font-smoothing: antialiased;
+    -moz-osx-font-smoothing: grayscale;
+    text-rendering: optimizeLegibility;
   }
 
   /* Thanh công cụ — không in */
@@ -187,8 +194,9 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
     text-transform: uppercase; color: var(--orange);
   }
   .head h1 {
-    font-family: "Archivo", sans-serif; font-weight: 800; font-stretch: 116%;
-    font-size: 17.5pt; line-height: 1.2; margin: 2mm 0 3mm;
+    font-family: "Be Vietnam Pro", sans-serif; font-weight: 800;
+    font-size: 17.5pt; line-height: 1.25; margin: 2mm 0 3mm;
+    color: var(--ink);
   }
   .head .meta { font-size: 9.5pt; color: var(--ink); }
   .head .meta div { margin-top: .8mm; }
@@ -198,7 +206,7 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
     border: 1.5pt solid var(--orange); border-radius: 10px; padding: 3mm 4.5mm;
   }
   .score-pill .num {
-    font-family: "Archivo", sans-serif; font-weight: 800; font-stretch: 116%;
+    font-family: "Be Vietnam Pro", sans-serif; font-weight: 800;
     font-size: 19pt; color: var(--orange-deep); line-height: 1;
   }
   .score-pill .cap { font: 500 6.5pt "IBM Plex Mono", monospace; letter-spacing: .12em; text-transform: uppercase; color: var(--soft); margin-top: 1.5mm; }
@@ -207,8 +215,8 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
 
   /* Nội dung báo cáo */
   .report h2 {
-    font-family: "Archivo", sans-serif; font-weight: 700; font-stretch: 116%;
-    font-size: 10.5pt; text-transform: uppercase; letter-spacing: .1em;
+    font-family: "Be Vietnam Pro", sans-serif; font-weight: 700;
+    font-size: 10.5pt; text-transform: uppercase; letter-spacing: .06em;
     color: var(--orange-deep); margin: 6mm 0 2.5mm;
     display: flex; align-items: center; gap: 2.2mm;
     break-after: avoid-page;
@@ -224,7 +232,7 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
   .report li > ul li { margin: 1mm 0; }
   .report ul li::marker { color: var(--orange); }
   .report ol li::marker { font-family: "IBM Plex Mono", monospace; font-weight: 500; color: var(--orange-deep); }
-  .report strong { font-weight: 600; }
+  .report strong { font-weight: 600; color: #000; }
   .report code {
     font: 500 .85em "IBM Plex Mono", monospace;
     background: var(--chip); border-radius: 3px; padding: .5pt 3pt;
@@ -245,8 +253,21 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
 
   @page { size: A4; margin: 0; }
   @media print {
-    body { background: #fff; }
-    .toolbar { display: none; }
+    * {
+      -webkit-print-color-adjust: exact !important;
+      print-color-adjust: exact !important;
+      text-shadow: none !important;
+      filter: none !important;
+      box-shadow: none !important;
+    }
+    body {
+      background: #fff !important;
+      color: #111827 !important;
+      -webkit-font-smoothing: antialiased;
+      -moz-osx-font-smoothing: grayscale;
+      text-rendering: optimizeLegibility;
+    }
+    .toolbar { display: none !important; }
     .frame { display: table; }
     .frame > thead { display: table-header-group; }
     .frame > tbody { display: table-row-group; }
@@ -257,10 +278,21 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
     .sheet { max-width: none; margin: 0; padding: 0 13mm; box-shadow: none; }
   }
 </style>
+<script>
+  function triggerPrint() {
+    if (document.fonts && document.fonts.ready) {
+      document.fonts.ready.then(function() {
+        window.print();
+      });
+    } else {
+      window.print();
+    }
+  }
+</script>
 </head>
 <body>
   <div class="toolbar">
-    <button onclick="window.print()">In / Lưu PDF</button>
+    <button onclick="triggerPrint()">In / Lưu PDF</button>
     <span>chọn “Save as PDF” trong hộp thoại in</span>
   </div>
 
@@ -281,8 +313,8 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
         </div>
       </div>
       ${
-        score
-          ? `<div class="score-pill"><div class="num">${escapeHtml(score)}<span style="font-size:9pt">/10</span></div><div class="cap">cạnh tranh</div></div>`
+        validatedScore
+          ? `<div class="score-pill"><div class="num">${escapeHtml(validatedScore)}<span style="font-size:9pt">/10</span></div><div class="cap">cạnh tranh</div></div>`
           : ""
       }
     </header>
@@ -290,7 +322,7 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
     <hr class="rule" />
 
     <article class="report">
-${markdownToHtml(analysis)}
+${markdownToHtml(cleanAnalysis)}
     </article>
 
     <footer class="foot">
