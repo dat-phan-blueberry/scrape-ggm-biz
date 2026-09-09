@@ -105,6 +105,13 @@ trực tiếp trước mặt chủ quán khi tư vấn.
 - Chỉ gửi nội dung sau khi kiểm tra xong; trong khi chờ gửi SSE keepalive.
   Lần đầu dùng SSE ở cả hai môi trường; chat dùng JSON ở Next và SSE ở Edge,
   giao diện đọc được cả hai. Hết lượt thử thì báo lỗi, giữ báo cáo cũ khi sửa qua chat.
+- Bộ đọc ở giao diện dùng chung cho thẩm định và chat: xử lý UTF-8 chia nhỏ,
+  sự kiện nhiều dòng và phần còn lại ở cuối luồng; chỉ hoàn tất khi nhận `[DONE]`.
+  Khác cách trình bày tiêu đề không bị coi là lỗi mạng. Tiêu chí biên tập sáu mục
+  được kiểm tra lúc sinh báo cáo, còn giao diện kiểm tra nội dung đủ dài và điểm
+  hợp lệ. Nếu endpoint trả điểm sai, giao diện thử lại một lần; nếu vẫn lỗi thì
+  giữ nội dung đã nhận để xem, nhưng không lưu làm báo cáo hoàn tất hoặc cho xuất PDF.
+  Lỗi kết nối, lỗi dịch vụ và lỗi nội dung có thông báo riêng.
 - Chưa có nguồn xác minh địa giới hiện hành nên không chuyển địa chỉ thô vào tư
   liệu AI, không tự đoán địa chỉ mới. Prompt yêu cầu bỏ tên hành chính chưa xác minh
   cả trong nhận xét và lịch sử trao đổi. Đây chưa phải dịch vụ chuẩn hóa địa chỉ;
@@ -116,6 +123,7 @@ Kiểm tra cục bộ (không gọi Gemini thật):
 
 ```bash
 deno test --no-config tests/audit.test.ts
+node tests/audit-ui.cjs
 deno check --no-config supabase/functions/ai-analysis/index.ts
 npm run build
 ```

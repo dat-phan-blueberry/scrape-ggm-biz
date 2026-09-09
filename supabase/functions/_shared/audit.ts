@@ -93,13 +93,22 @@ Toàn bộ báo cáo sáu mục sau khi sửa, hoặc đúng hai chữ GIỮ NGU
 
 /** Chỉ nhận điểm được công bố rõ ràng; không quy đổi, làm tròn hoặc cắt ngưỡng. */
 export function parseAndValidateScore(text: string): string | null {
-  const lines = text.replace(/\*\*|__/g, "").split(/\r?\n/).filter(line =>
-    /^\s*(?:#{1,6}\s*)?(?:Điểm cạnh tranh|Điểm đánh giá cạnh tranh|Competitive score)\s*:/i.test(line));
-  if (lines.length !== 1) return null;
-  const match = lines[0].match(/:\s*(\d+(?:[.,]\d)?)\s*\/\s*10\s*$/);
+  const lines = text.normalize("NFC").split(/\r?\n/).map(plainHeading).filter(Boolean);
+  const label = /^(?:Điểm cạnh tranh|Điểm đánh giá cạnh tranh|Competitive score)(?:\s*:|$)/i;
+  const indices = lines.flatMap((line, index) => label.test(line) ? [index] : []);
+  if (indices.length !== 1) return null;
+  const index = indices[0];
+  const scoreText = lines[index].replace(label, "").trim() || lines[index + 1] || "";
+  const match = scoreText.match(/^(\d+(?:[.,]\d)?)\s*\/\s*10\s*$/);
   if (!match) return null;
   const score = Number(match[1].replace(",", "."));
   return Number.isFinite(score) && score >= 0 && score <= 10 ? String(score) : null;
+}
+
+function plainHeading(line: string): string {
+  return line.replace(/\u00a0/g, " ").replace(/\*\*|__/g, "").trim()
+    .replace(/^#{1,6}\s+/, "").replace(/\s+#+$/, "")
+    .replace(/^\d+[.)]\s+/, "").replace(/:\s*$/, "").trim();
 }
 
 export function cleanBusinessReportText(text: string): string {
@@ -118,8 +127,14 @@ export function splitRefinement(text: string) {
 
 export function reportValidationError(text: string): string | null {
   if (parseAndValidateScore(text) === null) return "Điểm cạnh tranh thiếu hoặc sai định dạng/thang 0–10. Viết lại điểm hợp lệ, không dùng thang 100.";
-  for (const heading of ["Đánh giá tổng quan", "Điểm mạnh", "Cơ hội cải thiện", "Đánh giá về Text Menu", "Khuyến nghị hành động"]) {
-    if (!text.includes(`## ${heading}\n`) && !text.includes(`## ${heading}\r\n`)) return `Báo cáo thiếu mục ${heading}.`;
+  const headings = text.normalize("NFC").split(/\r?\n/)
+    .filter(line => /^\s*(?:#{1,6}\s+|\*\*|__)/.test(line))
+    .map(line => plainHeading(line).toLocaleLowerCase());
+  for (const alternatives of [
+    ["Đánh giá tổng quan"], ["Điểm mạnh"], ["Cơ hội cải thiện", "Điểm yếu & thiếu sót"],
+    ["Đánh giá về Text Menu", "Đánh giá Text Menu"], ["Khuyến nghị hành động"],
+  ]) {
+    if (!alternatives.some(heading => headings.includes(heading.toLocaleLowerCase()))) return `Báo cáo thiếu mục ${alternatives[0]}.`;
   }
   if (text.length < 300) return "Báo cáo quá ngắn hoặc bị gián đoạn; cần hoàn thành nội dung.";
   if (/`|\b(?:booking_links|menu\.(?:highlights|categories)|has_text_menu|text_menu_items_count|user_reviews|data_id|place_id)\b|(?:trường|thuộc tính)\s+(?:website|menu|categories|highlights)\b/i.test(text)) {

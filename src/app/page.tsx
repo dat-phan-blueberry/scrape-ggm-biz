@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
+import { AiResponseError, completedReportError, readAiResponse, requestAiAudit } from "@/lib/ai-response";
 import {
   type BusinessProfile,
   type ChatMessage,
@@ -9,9 +10,6 @@ import {
   getVenueAuditMemory,
   saveVenueAuditMemory,
   clearVenueAuditMemory,
-  parseAndValidateScore,
-  reportValidationError,
-  splitRefinement,
 } from "@/lib/types";
 import {
   Chip,
@@ -214,114 +212,24 @@ export default function HomePage() {
   const runAiAudit = async () => {
     if (!profile) return;
     setAi({ status: "streaming", analysis: "" });
-
-    // Ưu tiên Supabase Edge Function (stream SSE thật). Nếu không cấu hình
-    // thì fallback về API route nội bộ (/api/ai-analysis, trả JSON).
-    const endpoint =
-      process.env.NEXT_PUBLIC_AI_ANALYSIS_URL?.trim() || "/api/ai-analysis";
-
+    const endpoint = process.env.NEXT_PUBLIC_AI_ANALYSIS_URL?.trim() || "/api/ai-analysis";
     try {
-      const res = await fetch(endpoint, {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ profile }),
+      const analysis = await requestAiAudit(endpoint, { profile }, (text) => {
+        setAi({ status: "streaming", analysis: text });
       });
-
-      const contentType = res.headers.get("content-type") || "";
-      const isStream = contentType.includes("text/event-stream") && !!res.body;
-
-      // ---- Trường hợp 1: SSE thật (Supabase) -> hiện chữ theo từng chunk ----
-      if (isStream) {
-        const reader = res.body!.getReader();
-        const decoder = new TextDecoder();
-        let buffer = "";
-        let acc = "";
-        let errMsg: string | null = null;
-
-        while (true) {
-          const { done, value } = await reader.read();
-          if (done) break;
-          buffer += decoder.decode(value, { stream: true });
-
-          let nl: number;
-          while ((nl = buffer.indexOf("\n")) >= 0) {
-            const line = buffer.slice(0, nl).trim();
-            buffer = buffer.slice(nl + 1);
-            if (!line.startsWith("data:")) continue; // bỏ qua ": ping"
-            const payload = line.slice(5).trim();
-            if (!payload || payload === "[DONE]") continue;
-            try {
-              const obj = JSON.parse(payload);
-              if (obj.error) {
-                errMsg = obj.error;
-              } else if (typeof obj.text === "string") {
-                acc += obj.text;
-                setAi({ status: "streaming", analysis: acc });
-              }
-            } catch {
-              /* chunk chưa hoàn chỉnh -> bỏ qua */
-            }
-          }
-        }
-
-        const validScore = parseAndValidateScore(acc);
-        if (!errMsg && acc.trim() && acc.length >= 300 && validScore && !reportValidationError(acc)) {
-          setAi({ status: "done", analysis: acc });
-          const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
-          if (targetDataId) {
-            saveVenueAuditMemory(targetDataId, {
-              dataId: targetDataId,
-              title: profile.title,
-              lastUpdated: Date.now(),
-              analysis: acc,
-              messages: [],
-            });
-          }
-        } else {
-          setAi({
-            status: "error",
-            message: errMsg || "Quá trình phân tích bị gián đoạn giữa chừng do đường truyền AI. Vui lòng bấm Thử lại để tải đầy đủ bản báo cáo.",
-          });
-        }
-        return;
-      }
-
-      // ---- Trường hợp 2: JSON (API route Netlify) -> typewriter ở client ----
-      const data = await res.json();
-      if (!res.ok || data.error) {
-        setAi({ status: "error", message: data.error || `Lỗi ${res.status}` });
-        return;
-      }
-      const full: string = data.analysis ?? "";
-      if (!full.trim() || reportValidationError(full)) {
-        setAi({ status: "error", message: "Báo cáo chưa đầy đủ hoặc điểm không đúng thang 0–10. Vui lòng thử lại." });
-        return;
-      }
-      await new Promise<void>((resolve) => {
-        let i = 0;
-        const step = Math.max(3, Math.round(full.length / 220)); // ~3.5s
-        const timer = window.setInterval(() => {
-          i = Math.min(full.length, i + step);
-          setAi({ status: "streaming", analysis: full.slice(0, i) });
-          if (i >= full.length) {
-            window.clearInterval(timer);
-            resolve();
-          }
-        }, 16);
-      });
-      setAi({ status: "done", analysis: full });
+      setAi({ status: "done", analysis });
       const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
       if (targetDataId) {
         saveVenueAuditMemory(targetDataId, {
-          dataId: targetDataId,
-          title: profile.title,
-          lastUpdated: Date.now(),
-          analysis: full,
-          messages: [],
+          dataId: targetDataId, title: profile.title, lastUpdated: Date.now(), analysis, messages: [],
         });
       }
-    } catch {
-      setAi({ status: "error", message: "Không kết nối được máy chủ." });
+    } catch (error) {
+      setAi({
+        status: "error",
+        message: error instanceof AiResponseError ? error.message : "Không kết nối được máy chủ. Vui lòng thử lại.",
+        analysis: error instanceof AiResponseError ? error.draft : undefined,
+      });
     }
   };
 
@@ -357,75 +265,45 @@ export default function HomePage() {
           }),
         });
 
-        let data;
-        if (res.headers.get("content-type")?.includes("text/event-stream") && res.body) {
-          const streamText = await res.text();
-          let text = "";
-          let error = "";
-          for (const line of streamText.split(/\r?\n/)) {
-            if (!line.startsWith("data:")) continue;
-            const payload = line.slice(5).trim();
-            if (!payload || payload === "[DONE]") continue;
-            const event = JSON.parse(payload);
-            if (event.error) error = event.error;
-            if (typeof event.text === "string") text += event.text;
-          }
-          const refinement = splitRefinement(text);
-          data = error ? { error } : refinement
-            ? { ...refinement, analysis: refinement.updatedAnalysis ?? ai.analysis }
-            : { error: "Phản hồi chưa hoàn chỉnh. Vui lòng thử lại." };
-        } else {
-          data = await res.json();
+        const data = await readAiResponse(res, ai.analysis);
+        const validationError = completedReportError(data.updatedAnalysis || data.analysis || ai.analysis);
+        if (validationError) throw new AiResponseError(validationError, "validation");
+        const targetReport: string = (data.updatedAnalysis || data.analysis || ai.analysis || "").trim();
+        if (targetReport && targetReport !== ai.analysis) {
+          setAi({ status: "done", analysis: targetReport });
         }
-        if (!data.error && reportValidationError(data.updatedAnalysis || data.analysis || ai.analysis)) {
-          data = { error: "Báo cáo chưa đầy đủ hoặc điểm không đúng thang 0–10. Vui lòng thử lại." };
+
+        const botResponse =
+          data.reply?.trim() ||
+          (data.updatedAnalysis
+            ? `Đã cập nhật báo cáo theo yêu cầu: "${instruction}"`
+            : "Đã tiếp nhận và xử lý yêu cầu của bạn.");
+
+        const modelMsg: ChatMessage = {
+          id: `model-${Date.now()}`,
+          role: "model",
+          content: botResponse,
+          timestamp: Date.now(),
+        };
+        const finalMessages = [...updatedMessages, modelMsg];
+        setChatMessages(finalMessages);
+
+        // Tự động append và lưu ngầm toàn bộ lịch sử chỉnh sửa & quyết định của nhà hàng
+        const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
+        if (targetDataId) {
+          saveVenueAuditMemory(targetDataId, {
+            dataId: targetDataId,
+            title: profile.title,
+            lastUpdated: Date.now(),
+            analysis: targetReport || ai.analysis,
+            messages: finalMessages,
+          });
         }
-        if (!res.ok || data.error) {
-          const errorMsg: ChatMessage = {
-            id: `model-${Date.now()}`,
-            role: "model",
-            content: `Chưa thể cập nhật: ${data.error || `Lỗi ${res.status}`}`,
-            timestamp: Date.now(),
-          };
-          setChatMessages([...updatedMessages, errorMsg]);
-        } else {
-          const targetReport: string = (data.updatedAnalysis || data.analysis || ai.analysis || "").trim();
-          if (targetReport && targetReport !== ai.analysis) {
-            setAi({ status: "done", analysis: targetReport });
-          }
-
-          const botResponse =
-            data.reply?.trim() ||
-            (data.updatedAnalysis
-              ? `Đã cập nhật báo cáo theo yêu cầu: "${instruction}"`
-              : "Đã tiếp nhận và xử lý yêu cầu của bạn.");
-
-          const modelMsg: ChatMessage = {
-            id: `model-${Date.now()}`,
-            role: "model",
-            content: botResponse,
-            timestamp: Date.now(),
-          };
-          const finalMessages = [...updatedMessages, modelMsg];
-          setChatMessages(finalMessages);
-
-          // Tự động append và lưu ngầm toàn bộ lịch sử chỉnh sửa & quyết định của nhà hàng
-          const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
-          if (targetDataId) {
-            saveVenueAuditMemory(targetDataId, {
-              dataId: targetDataId,
-              title: profile.title,
-              lastUpdated: Date.now(),
-              analysis: targetReport || ai.analysis,
-              messages: finalMessages,
-            });
-          }
-        }
-      } catch {
+      } catch (error) {
         const errorMsg: ChatMessage = {
           id: `model-${Date.now()}`,
           role: "model",
-          content: "Lỗi kết nối khi gửi yêu cầu chỉnh sửa. Vui lòng thử lại.",
+          content: error instanceof AiResponseError ? error.message : "Lỗi kết nối khi gửi yêu cầu chỉnh sửa. Vui lòng thử lại.",
           timestamp: Date.now(),
         };
         setChatMessages([...updatedMessages, errorMsg]);

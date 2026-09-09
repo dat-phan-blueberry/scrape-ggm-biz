@@ -591,7 +591,7 @@ export type AiState =
   | { status: "loading" }
   | { status: "streaming"; analysis: string }
   | { status: "done"; analysis: string }
-  | { status: "error"; message: string };
+  | { status: "error"; message: string; analysis?: string };
 
 const QUICK_SUGGESTIONS = [
   "🎯 Nhấn mạnh thiếu Text Menu ảnh hưởng SEO",
@@ -716,19 +716,29 @@ export function AiAuditSection({
         )}
 
         {state.status === "error" && (
-          <div className="flex items-start gap-3 p-5">
-            <IconWarn className="mt-0.5 h-4 w-4 shrink-0 text-pin" />
-            <div>
-              <p className="text-[0.83rem] font-semibold text-pin">Chưa chạy được thẩm định</p>
-              <p className="mt-1 break-all text-[0.78rem] text-soft">{state.message}</p>
-              <button
-                onClick={onRun}
-                className="mt-3 rounded-lg border border-line px-3 py-1.5 text-[0.78rem] font-medium hover:border-moss hover:text-moss-deep"
-              >
-                Thử lại
-              </button>
+          <div className="p-5">
+            <div className="flex items-start gap-3">
+              <IconWarn className="mt-0.5 h-4 w-4 shrink-0 text-pin" />
+              <div>
+                <p className="text-[0.83rem] font-semibold text-pin">Chưa hoàn tất thẩm định</p>
+                <p className="mt-1 break-all text-[0.78rem] text-soft">{state.message}</p>
+                <button
+                  onClick={onRun}
+                  className="mt-3 rounded-lg border border-line px-3 py-1.5 text-[0.78rem] font-medium hover:border-moss hover:text-moss-deep"
+                >
+                  Thử lại
+                </button>
+              </div>
             </div>
-          </div>
+            {state.analysis?.trim() && (
+              <details className="mt-4 border-t border-line pt-4" open>
+                <summary className="cursor-pointer text-[0.78rem] font-medium text-soft">
+                  Nội dung đã nhận — chưa được xác nhận hoàn tất
+                </summary>
+                <div className="mt-3"><MarkdownLite text={state.analysis} /></div>
+              </details>
+            )}
+            </div>
         )}
 
         {state.status === "done" && (

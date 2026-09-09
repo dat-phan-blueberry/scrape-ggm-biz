@@ -1,5 +1,6 @@
 import { businessBrief, buildPrompt, cleanBusinessReportText, parseAndValidateScore, reportValidationError, responseValidationError, splitRefinement } from "../supabase/functions/_shared/audit.ts";
 import { auditEventStream, generateAudit } from "../supabase/functions/_shared/audit-service.ts";
+import { AiResponseError, completedReportError, readAiResponse, requestAiAudit } from "../src/lib/ai-response.ts";
 
 function equal(actual: unknown, expected: unknown) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
@@ -107,4 +108,110 @@ Deno.test("Lỗi 429 retry; lỗi quyền truy cập dừng ngay", async () => {
     equal(failed, true);
     equal(requests.length, 1);
   });
+});
+
+Deno.test("Báo cáo hợp lệ không bị loại vì Markdown, đánh số mục hoặc khoảng trắng", () => {
+  const formatted = report().replace(/^## (.+)$/gm, "### **$1**  ");
+  equal(reportValidationError(formatted), null);
+  equal(reportValidationError(report().replace("## Điểm mạnh", "## 2. Điểm mạnh ###")), null);
+  equal(parseAndValidateScore(report().replace("## Điểm cạnh tranh: 7.5/10", "## 6. Điểm cạnh tranh\n\n**7.5/10**")), "7.5");
+  equal(parseAndValidateScore(report().replace("7.5/10", "85/10")), null);
+});
+Deno.test("Client không áp khung biên tập mới lên báo cáo Edge khác phiên bản", () => {
+  const oldReport = report().replace("## Cơ hội cải thiện", "## Điểm yếu & thiếu sót").replace("## Đánh giá về Text Menu", "## Thực đơn");
+  equal(completedReportError(oldReport), null);
+  equal(!!reportValidationError(oldReport), true);
+});
+
+function sse(parts: string[], done = true, trailingNewline = true) {
+  return parts.map(text => `data: ${JSON.stringify({ text })}\r\n\r\n`).join("")
+    + (done ? `data: [DONE]${trailingNewline ? "\r\n\r\n" : ""}` : "");
+}
+function streamResponse(content: string, chunkSize = 17) {
+  const bytes = new TextEncoder().encode(content);
+  return new Response(new ReadableStream<Uint8Array>({
+    start(controller) {
+      for (let i = 0; i < bytes.length; i += chunkSize) controller.enqueue(bytes.slice(i, i + chunkSize));
+      controller.close();
+    },
+  }), { headers: { "Content-Type": "text/event-stream" } });
+}
+Deno.test("SSE chia từng byte UTF-8, nhiều sự kiện/chunk và DONE thiếu newline đều nhận đủ", async () => {
+  for (const chunkSize of [1, 17, 100_000]) {
+    const text = report();
+    const res = await readAiResponse(streamResponse(": ping\n\n" + sse([text.slice(0, -20), text.slice(-20)], true, false), chunkSize));
+    equal(res.analysis, text);
+    equal(completedReportError(res.analysis), null);
+  }
+});
+Deno.test("Sự kiện cuối chứa điểm được giữ lại khi flush EOF", async () => {
+  // JSON nhiều dòng là SSE hợp lệ; không được parse riêng từng data line.
+  const content = `data: {\ndata: "text": ${JSON.stringify(report())}\ndata: }\n\ndata: [DONE]`;
+  equal((await readAiResponse(streamResponse(content))).analysis, report());
+});
+Deno.test("HTTP 200 nhưng thiếu DONE là lỗi kết nối, giữ nguyên nội dung đã nhận", async () => {
+  try {
+    await readAiResponse(streamResponse(sse([report()], false)));
+    throw new Error("Phải báo stream chưa hoàn tất");
+  } catch (error) {
+    equal(error instanceof AiResponseError, true);
+    equal((error as AiResponseError).kind, "connection");
+    equal((error as AiResponseError).draft, report());
+  }
+});
+Deno.test("HTTP 200 có sự kiện lỗi không bị biến thành thành công hoặc lỗi mạng chung", async () => {
+  try {
+    await readAiResponse(streamResponse(sse([report()], false) + 'data: {"error":"Dịch vụ đã hết lượt thử."}\n\n'));
+    throw new Error("Phải báo lỗi dịch vụ");
+  } catch (error) {
+    equal((error as AiResponseError).kind, "response");
+    equal((error as AiResponseError).message, "Dịch vụ đã hết lượt thử.");
+    equal((error as AiResponseError).draft, report());
+  }
+});
+Deno.test("JSON và Edge SSE chat cùng giữ báo cáo khi GIỮ NGUYÊN", async () => {
+  const text = "=== PHẢN HỒI CHAT ===\nGiải đáp.\n=== BẢN BÁO CÁO CẬP NHẬT ===\nGIỮ NGUYÊN";
+  equal((await readAiResponse(streamResponse(sse([text])), report())).analysis, report());
+  equal((await readAiResponse(Response.json({ analysis: report(), reply: "Giải đáp." }), report())).analysis, report());
+});
+Deno.test("Client tự retry điểm sai từ Edge cũ, không ghép bản cũ vào bản mới", async () => {
+  const original = globalThis.fetch;
+  const displayed: string[] = [];
+  let calls = 0;
+  globalThis.fetch = () => Promise.resolve(streamResponse(sse([report(++calls === 1 ? "85/10" : "8/10")])));
+  try {
+    equal(await requestAiAudit("https://example.test", { profile: {} }, text => displayed.push(text)), report("8/10"));
+    equal(calls, 2);
+    equal(displayed.filter(text => text === "").length, 2);
+    equal(displayed[displayed.length - 1], report("8/10"));
+  } finally { globalThis.fetch = original; }
+});
+Deno.test("Client hết retry điểm sai: lỗi nội dung riêng, giữ bản nhận được", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = () => { calls++; return Promise.resolve(streamResponse(sse([report("85/10")]))); };
+  try {
+    await requestAiAudit("https://example.test", { profile: {} });
+    throw new Error("Phải từ chối điểm 85/10");
+  } catch (error) {
+    equal(calls, 2);
+    equal((error as AiResponseError).kind, "validation");
+    equal((error as AiResponseError).draft, report("85/10"));
+  } finally { globalThis.fetch = original; }
+});
+
+Deno.test("Kết nối hỏng khi retry vẫn giữ bản nhận được ở lượt đầu", async () => {
+  const original = globalThis.fetch;
+  let calls = 0;
+  globalThis.fetch = () => ++calls === 1
+    ? Promise.resolve(streamResponse(sse([report("85/10")])))
+    : Promise.reject(new TypeError("Network error"));
+  try {
+    await requestAiAudit("https://example.test", { profile: {} });
+    throw new Error("Phải báo lỗi kết nối");
+  } catch (error) {
+    equal(calls, 2);
+    equal((error as AiResponseError).kind, "connection");
+    equal((error as AiResponseError).draft, report("85/10"));
+  } finally { globalThis.fetch = original; }
 });
