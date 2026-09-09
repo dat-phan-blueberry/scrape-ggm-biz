@@ -62,11 +62,10 @@ Khi cả bốn key đều nghỉ, API trả 429 kèm câu nói rõ giờ hạn m
    `data=!4m5!3m4!1s{data_id}!8m2!3d{lat}!4d{lng}` cho engine `google_maps`.
    Route chuẩn hóa dữ liệu thô về `BusinessProfile` (xem `src/lib/types.ts`):
    giờ mở cửa, histogram điểm, thực đơn, đánh giá, giờ cao điểm, phân bố giá…
-3. **Thẩm định** — `POST /api/ai-analysis` gửi hồ sơ (đã lược ảnh) cho Gemini,
-   trả về báo cáo markdown tiếng Việt. Có chuỗi model dự phòng
-   (`gemini-3.5-flash` → `gemini-3-flash-preview` → `gemini-flash-latest`)
-   vì free tier hay quá tải 503; `gemini-3.1-pro-preview` không dùng được ở
-   free tier (limit = 0).
+3. **Thẩm định** — `POST /api/ai-analysis` gửi tư liệu có nhãn kinh doanh cho
+   Gemini, trả báo cáo tiếng Việt dành cho chủ nhà hàng và đội sales. Prompt và
+   kiểm tra kết quả dùng chung với Supabase Edge tại `supabase/functions/_shared/`.
+   Ưu tiên `gemini-flash-latest`, thử lại một lần rồi dùng `gemini-3.5-flash` dự phòng.
 4. **Xuất PDF** — nút "Xuất PDF" trên báo cáo mở cửa sổ xem trước A4 thương
    hiệu GoDine (logo ở `public/logo.png`, tiêu đề "Audit Google Business
    Profile Report") → bấm "In / Lưu PDF" → chọn *Save as PDF*. Trình dựng
@@ -90,3 +89,37 @@ src/
 
 Ghi chú UI: giao diện không nhắc tên nhà cung cấp dữ liệu/AI — có thể mở
 trực tiếp trước mặt chủ quán khi tư vấn.
+
+## Quy tắc thẩm định
+
+- Nhận định theo bằng chứng và bối cảnh từng quán; không dùng trọng số cứng,
+  không mặc định trừ điểm hay ưu tiên bán giải pháp khi chưa thu thập được menu.
+- Có mục **Đánh giá về Text Menu** riêng: tên món, giá, mô tả, nhóm món và khả năng
+  giúp khách lựa chọn. Phân biệt thiếu thông tin với xác nhận nhà hàng chưa có.
+  Không khẳng định Google không đọc được chữ trong ảnh; xem
+  [hướng dẫn menu của Google](https://support.google.com/business/answer/9455840?hl=en).
+- Điểm từ **0 đến 10**, tối đa một chữ số thập phân, bắt buộc tiêu đề
+  `## Điểm cạnh tranh: X/10`. Sai điểm, thiếu mục hoặc kết quả bị cắt sẽ gọi lại;
+  tối đa 3 lượt gọi trong ngân sách 50 giây. Không chia điểm thang 100, làm tròn
+  hay cắt về 10 để hợp thức hóa kết quả sai.
+- Chỉ gửi nội dung sau khi kiểm tra xong; trong khi chờ gửi SSE keepalive.
+  Lần đầu dùng SSE ở cả hai môi trường; chat dùng JSON ở Next và SSE ở Edge,
+  giao diện đọc được cả hai. Hết lượt thử thì báo lỗi, giữ báo cáo cũ khi sửa qua chat.
+- Chưa có nguồn xác minh địa giới hiện hành nên không chuyển địa chỉ thô vào tư
+  liệu AI, không tự đoán địa chỉ mới. Prompt yêu cầu bỏ tên hành chính chưa xác minh
+  cả trong nhận xét và lịch sử trao đổi. Đây chưa phải dịch vụ chuẩn hóa địa chỉ;
+  cần chủ quán xác nhận khi muốn ghi địa chỉ đầy đủ. Hồ sơ gốc vẫn hiển thị dữ liệu nguồn.
+- Báo cáo đã lưu trước thay đổi không tự viết lại. Dùng **Làm mới** để
+  tạo báo cáo theo chuẩn mới, hoặc yêu cầu sửa qua chat để giữ ngữ cảnh trao đổi.
+
+Kiểm tra cục bộ (không gọi Gemini thật):
+
+```bash
+deno test --no-config tests/audit.test.ts
+deno check --no-config supabase/functions/ai-analysis/index.ts
+npm run build
+```
+
+Khi phát hành cần cập nhật cả Next và Edge nếu đang cấu hình
+`NEXT_PUBLIC_AI_ANALYSIS_URL`. Chất lượng văn phong thực tế cần kiểm tra bằng báo
+cáo Gemini thật; bộ kiểm thử cục bộ dùng phản hồi giả lập để kiểm tra logic.
