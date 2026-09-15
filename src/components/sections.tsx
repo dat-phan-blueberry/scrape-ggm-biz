@@ -600,7 +600,7 @@ export type AiState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "streaming"; analysis: string }
-  | { status: "done"; analysis: string; stale?: boolean }
+  | { status: "done"; analysis: string }
   | { status: "error"; message: string; analysis?: string };
 
 const QUICK_SUGGESTIONS = [
@@ -640,7 +640,7 @@ export function AiAuditSection({
       : null;
 
   const exportPdf = () => {
-    if (state.status !== "done" || isRefining || state.stale) return;
+    if (state.status !== "done" || isRefining) return;
     const opened = openAuditReport({
       restaurant,
       analysis: state.analysis,
@@ -791,7 +791,7 @@ export function AiAuditSection({
                 )}
                 <button
                   onClick={exportPdf}
-                  disabled={isRefining || state.stale}
+                  disabled={isRefining}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-card px-3 py-1.5 text-[0.74rem] font-semibold shadow-card transition-colors hover:border-moss/50 hover:text-moss-deep"
                 >
                   <IconDownload className="h-3.5 w-3.5" />
@@ -801,10 +801,6 @@ export function AiAuditSection({
             </div>
 
             <div className="p-5" aria-label="Báo cáo thẩm định" aria-busy={isRefining}>
-              {state.stale && <div className="mb-4 rounded-lg border border-line bg-field p-3 text-sm">
-                <p>Báo cáo lưu theo tiêu chuẩn cũ. Cần thẩm định lại để có đánh giá Text Menu và kiểm tra nội dung mới.</p>
-                <button onClick={onRun} disabled={isRefining} className="mt-2 font-semibold text-moss-deep underline">Thẩm định lại</button>
-              </div>}
               {saveWarning && <p role="alert" className="mb-3 text-sm text-pin">{saveWarning}</p>}
               {isRefining && <p role="status" className="mb-3 text-sm font-medium text-moss-deep">{refinementDraft ? "Đang nhận bản chỉnh sửa; sẽ lưu khi hoàn tất." : "Đang chỉnh sửa báo cáo…"}</p>}
               <MarkdownLite text={isRefining && refinementDraft ? refinementDraft : state.analysis} />

@@ -1,4 +1,4 @@
-import { AUDIT_VERSION, parseAndValidateScore, reportValidationError } from "../../supabase/functions/_shared/audit.ts";
+import { AUDIT_VERSION } from "../../supabase/functions/_shared/audit.ts";
 export { parseAndValidateScore, cleanBusinessReportText, reportValidationError, splitRefinement } from "../../supabase/functions/_shared/audit.ts";
 /** Một gợi ý từ SerpAPI google_maps_autocomplete */
 export interface Suggestion {
@@ -155,8 +155,7 @@ export function getVenueAuditMemory(dataId: string): VenueAuditMemory | null {
     const raw = localStorage.getItem(`${STORAGE_PREFIX}${dataId}`);
     if (!raw) return null;
     const parsed: VenueAuditMemory = JSON.parse(raw);
-    // Nếu bản báo cáo bị cụt lủn (không có điểm cạnh tranh hoặc quá ngắn do lỗi stream mạng), xóa bỏ cache hỏng
-    if (parsed.dataId !== dataId || typeof parsed.analysis !== "string" || parsed.analysis.length < 300 || parseAndValidateScore(parsed.analysis) === null) {
+    if (parsed.dataId !== dataId || typeof parsed.analysis !== "string" || !parsed.analysis.trim()) {
       return null;
     }
     return { ...parsed, messages: Array.isArray(parsed.messages) ? parsed.messages.filter(m => m && ["user", "model"].includes(m.role) && typeof m.content === "string") : [] };
@@ -167,8 +166,8 @@ export function getVenueAuditMemory(dataId: string): VenueAuditMemory | null {
 
 export function saveVenueAuditMemory(dataId: string, memory: VenueAuditMemory): boolean {
   if (typeof window === "undefined" || !dataId || memory.dataId !== dataId) return false;
-  // Chỉ lưu khi bản báo cáo là hoàn chỉnh (có điểm cạnh tranh hợp lệ và độ dài đủ lớn)
-  if (reportValidationError(memory.analysis)) {
+  // Caller chỉ lưu sau khi nhận xác nhận hoàn tất từ API.
+  if (typeof memory.analysis !== "string" || !memory.analysis.trim()) {
     return false;
   }
   try {

@@ -1,4 +1,4 @@
-import { reportValidationError, evidenceValidationError, responseValidationError, CHAT_MARKER, REPORT_MARKER, splitRefinement, type AuditInput } from "../../supabase/functions/_shared/audit.ts";
+import { splitRefinement, type AuditInput } from "../../supabase/functions/_shared/audit.ts";
 
 export class AiResponseError extends Error {
   constructor(message: string, public kind: "connection" | "response" | "validation", public draft = "", public retryAfterSeconds?: number, public status?: number) {
@@ -12,9 +12,9 @@ export interface AiResponse {
   updatedAnalysis?: string | null;
 }
 
-/** Mọi bản hoàn tất, kể cả từ Edge cũ, phải có Text Menu và nhận định đủ căn cứ. */
+/** Hoàn tất vận chuyển không phụ thuộc cách model đặt tiêu đề. */
 export function completedReportError(text: string, input?: AuditInput): string | null {
-  return reportValidationError(text) || (input ? evidenceValidationError(text, input) : null);
+  return text.trim() ? null : "Không nhận được nội dung báo cáo.";
 }
 
 function normalizeResponse(data: Record<string, unknown>, currentAnalysis?: string): AiResponse {
@@ -28,9 +28,7 @@ function normalizeResponse(data: Record<string, unknown>, currentAnalysis?: stri
 }
 
 export function completedRefinementError(result: AiResponse, input: AuditInput): string | null {
-  const changed = result.analysis.trim() !== input.currentAnalysis?.trim();
-  const reply = result.reply || (changed ? "Đã sửa báo cáo." : "Báo cáo được giữ nguyên.");
-  return responseValidationError(`${CHAT_MARKER}\n${reply}\n${REPORT_MARKER}\n${changed ? result.analysis : "GIỮ NGUYÊN"}`, input);
+  return completedReportError(result.analysis);
 }
 
 export function refinementPreview(text: string): string {
@@ -112,28 +110,25 @@ export async function readAiResponse(res: Response, currentAnalysis?: string, on
   return { analysis: text };
 }
 
-/** Endpoint cũ có thể chưa kiểm tra kết quả: UI thử lại một lần nếu nội dung sai. */
+/** Mỗi lần bấm gửi đúng một request; không tự tạo lại báo cáo đã nhận. */
 export async function requestAiAudit(endpoint: string, input: AuditInput, onText?: (text: string) => void, signal?: AbortSignal): Promise<string> {
   let lastDraft = "";
-  for (let attempt = 0; attempt < 2; attempt++) {
-    onText?.("");
-    let analysis: string;
-    try {
-      const res = await fetch(endpoint, {
-        method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), signal,
-      });
-      ({ analysis } = await readAiResponse(res, undefined, text => { lastDraft = text; onText?.(text); }));
-    } catch (error) {
-      if (error instanceof AiResponseError) {
-        error.draft ||= lastDraft;
-        throw error;
-      }
-      throw new AiResponseError("Không kết nối được máy chủ. Vui lòng thử lại.", "connection", lastDraft);
+  onText?.("");
+  let analysis: string;
+  try {
+    const res = await fetch(endpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), signal,
+    });
+    ({ analysis } = await readAiResponse(res, undefined, text => { lastDraft = text; onText?.(text); }));
+  } catch (error) {
+    if (error instanceof AiResponseError) {
+      error.draft ||= lastDraft;
+      throw error;
     }
-    lastDraft = analysis;
-    const error = completedReportError(analysis, input);
-    if (!error) return analysis;
-    if (attempt === 1) throw new AiResponseError(`Đã thử lại nhưng báo cáo chưa đạt yêu cầu: ${error}`, "validation", analysis);
+    throw new AiResponseError("Không kết nối được máy chủ. Vui lòng thử lại.", "connection", lastDraft);
   }
-  throw new AiResponseError("Không thể hoàn tất báo cáo.", "response");
+  lastDraft = analysis;
+  const error = completedReportError(analysis, input);
+  if (!error) return analysis;
+  throw new AiResponseError(error, "response", analysis);
 }

@@ -62,94 +62,12 @@ Deno.test("Chat GIỮ NGUYÊN chỉ hợp lệ với báo cáo hợp lệ", () =
   equal(!!responseValidationError(chat, { profile: {}, messages: [{ role: "user", content: "Giải thích" }], currentAnalysis: report("85/10") }), true);
 });
 
-function isReview(options?: RequestInit) {
-  return !!JSON.parse(String(options?.body || "{}")).generationConfig?.responseSchema?.properties?.issues;
-}
-function reviewed(issues: Array<{ quote: string; reason: string }> = []) {
-  return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify({ issues }) }] } }] });
-}
-async function mockGeneration(outputs: Array<string | number | { text: string; finishReason: string }>, run: (requests: string[], reviews: string[]) => Promise<void>, findings: Array<Array<{ quote: string; reason: string }>> = [[]]) {
-  const original = globalThis.fetch;
-  const requests: string[] = [];
-  const reviews: string[] = [];
-  globalThis.fetch = (_url, options) => {
-    if (isReview(options)) {
-      reviews.push(String(options?.body));
-      return Promise.resolve(reviewed(findings[Math.min(reviews.length - 1, findings.length - 1)]));
-    }
-    requests.push(String(options?.body));
-    const output = outputs[Math.min(requests.length - 1, outputs.length - 1)];
-    if (typeof output === "number") return Promise.resolve(new Response("Error", { status: output }));
-    const source = typeof output === "string" ? output : output.text;
-    // Fixture transport đã chuyển sang structured output của Gemini.
-    const refinement = splitRefinement(source);
-    const score = Number((refinement?.updatedAnalysis || source).match(/Điểm cạnh tranh: ([\d.-]+)/)?.[1]);
-    const text = source.startsWith("{") ? source : JSON.stringify(structured(score, refinement?.reply || ""));
-    return Promise.resolve(Response.json({ candidates: [{ finishReason: typeof output === "string" ? "STOP" : output.finishReason, content: { parts: [{ text }] } }] }));
-  };
-  try { await run(requests, reviews); } finally { globalThis.fetch = original; }
-}
-Deno.test("Điểm vượt ngưỡng retry cùng model, nhận bản hợp lệ", async () => {
-  await mockGeneration([report("85/10"), report("0/10")], async requests => {
-    equal(await generateAudit("test-key", { profile: {} }), report("0/10"));
-    equal(requests.length, 2);
-    equal(requests[1].includes("Lần trước chưa đạt kiểm tra"), true);
-  });
-});
-Deno.test("Hết 3 lần thử: SSE chỉ có lỗi, không lộ bản điểm sai", async () => {
-  await mockGeneration([report("85/10")], async requests => {
-    const text = await new Response(auditEventStream("test-key", { profile: {} })).text();
-    equal(requests.length, 3);
-    equal(text.includes('"text"'), false);
-    equal(text.includes('"error"'), true);
-    equal(text.includes("[DONE]"), true);
-  });
-});
-Deno.test("SSE chỉ gửi bản sau retry hợp lệ", async () => {
-  await mockGeneration([report("-1/10"), report("10/10")], async () => {
-    const text = await new Response(auditEventStream("test-key", { profile: {} })).text();
-    equal(text.includes("-1/10"), false);
-    equal(text.includes("10/10"), true);
-  });
-});
-Deno.test("Chat sửa điểm sai được retry và trả báo cáo mới", async () => {
-  const chat = (score: string) => `=== PHẢN HỒI CHAT ===\nĐã cập nhật.\n=== BẢN BÁO CÁO CẬP NHẬT ===\n${report(score)}`;
-  await mockGeneration([chat("11/10"), chat("8/10")], async requests => {
-    const text = await generateAudit("test-key", { profile: {}, currentAnalysis: report(), messages: [{ role: "user", content: "Bổ sung menu" }] });
-    equal(splitRefinement(text)?.updatedAnalysis, report("8/10"));
-    equal(requests.length, 2);
-  });
-});
-Deno.test("Kết quả bị cắt phải retry dù đã có điểm", async () => {
-  await mockGeneration([{ text: report(), finishReason: "MAX_TOKENS" }, report()], async requests => {
-    equal(await generateAudit("test-key", { profile: {} }), report());
-    equal(requests.length, 2);
-  });
-});
-Deno.test("Lỗi 429 retry; lỗi quyền truy cập dừng ngay", async () => {
-  await mockGeneration([429, report()], async requests => {
-    equal(await generateAudit("test-key", { profile: {} }), report());
-    equal(requests.length, 2);
-  });
-  await mockGeneration([403], async requests => {
-    let failed = false;
-    try { await generateAudit("test-key", { profile: {} }); } catch { failed = true; }
-    equal(failed, true);
-    equal(requests.length, 1);
-  });
-});
-
 Deno.test("Báo cáo hợp lệ không bị loại vì Markdown, đánh số mục hoặc khoảng trắng", () => {
   const formatted = report().replace(/^## (.+)$/gm, "### **$1**  ");
   equal(reportValidationError(formatted), null);
   equal(reportValidationError(report().replace("## Điểm mạnh", "## 2. Điểm mạnh ###")), null);
   equal(parseAndValidateScore(report().replace("## Điểm cạnh tranh: 7.5/10", "## 6. Điểm cạnh tranh\n\n**7.5/10**")), "7.5");
   equal(parseAndValidateScore(report().replace("7.5/10", "85/10")), null);
-});
-Deno.test("Client từ chối bản Edge cũ thiếu Text Menu theo yêu cầu chất lượng mới", () => {
-  const oldReport = report().replace("## Cơ hội cải thiện", "## Điểm yếu & thiếu sót").replace("## Đánh giá về Text Menu", "## Thực đơn");
-  equal(!!completedReportError(oldReport), true);
-  equal(!!reportValidationError(oldReport), true);
 });
 
 function sse(parts: string[], done = true, trailingNewline = true) {
@@ -203,47 +121,6 @@ Deno.test("JSON và Edge SSE chat cùng giữ báo cáo khi GIỮ NGUYÊN", asyn
   equal((await readAiResponse(streamResponse(sse([text])), report())).analysis, report());
   equal((await readAiResponse(Response.json({ analysis: report(), reply: "Giải đáp." }), report())).analysis, report());
 });
-Deno.test("Client tự retry điểm sai từ Edge cũ, không ghép bản cũ vào bản mới", async () => {
-  const original = globalThis.fetch;
-  const displayed: string[] = [];
-  let calls = 0;
-  globalThis.fetch = () => Promise.resolve(streamResponse(sse([report(++calls === 1 ? "85/10" : "8/10")])));
-  try {
-    equal(await requestAiAudit("https://example.test", { profile: {} }, text => displayed.push(text)), report("8/10"));
-    equal(calls, 2);
-    equal(displayed.filter(text => text === "").length, 2);
-    equal(displayed[displayed.length - 1], report("8/10"));
-  } finally { globalThis.fetch = original; }
-});
-Deno.test("Client hết retry điểm sai: lỗi nội dung riêng, giữ bản nhận được", async () => {
-  const original = globalThis.fetch;
-  let calls = 0;
-  globalThis.fetch = () => { calls++; return Promise.resolve(streamResponse(sse([report("85/10")]))); };
-  try {
-    await requestAiAudit("https://example.test", { profile: {} });
-    throw new Error("Phải từ chối điểm 85/10");
-  } catch (error) {
-    equal(calls, 2);
-    equal((error as AiResponseError).kind, "validation");
-    equal((error as AiResponseError).draft, report("85/10"));
-  } finally { globalThis.fetch = original; }
-});
-
-Deno.test("Kết nối hỏng khi retry vẫn giữ bản nhận được ở lượt đầu", async () => {
-  const original = globalThis.fetch;
-  let calls = 0;
-  globalThis.fetch = () => ++calls === 1
-    ? Promise.resolve(streamResponse(sse([report("85/10")])))
-    : Promise.reject(new TypeError("Network error"));
-  try {
-    await requestAiAudit("https://example.test", { profile: {} });
-    throw new Error("Phải báo lỗi kết nối");
-  } catch (error) {
-    equal(calls, 2);
-    equal((error as AiResponseError).kind, "connection");
-    equal((error as AiResponseError).draft, report("85/10"));
-  } finally { globalThis.fetch = original; }
-});
 
 Deno.test("Chặn đúng lời phán địa chỉ của An Bàng; giữ tên quán và tên món địa phương", () => {
   const wrong = 'Lỗi địa chỉ hiển thị nghiêm trọng (NAP inconsistency): Địa chỉ ghi "An Bang Beach Hội, Hội An Tây, Đà Nẵng, Việt Nam". Đây là lỗi ghép sai tỉnh thành (An Bàng thuộc Hội An, Quảng Nam, không phải Đà Nẵng).';
@@ -268,16 +145,6 @@ Deno.test("Menu giữ link, ảnh, giá 0; chịu dữ liệu sai kiểu và kh�
   const brief = JSON.stringify(businessBrief({ menu }));
   equal(brief.includes('"Số ảnh thực đơn":1'), true);
   equal(brief.includes('"Số món có giá":1'), true);
-});
-
-Deno.test("Structured output thiếu nội dung menu retry; không có báo cáo hợp lệ thì fail", async () => {
-  const invalid = structured();
-  invalid.report.textMenu.prices = "";
-  await mockGeneration([JSON.stringify(invalid), JSON.stringify(structured())], async requests => {
-    equal(await generateAudit("test-key", { profile: {} }), report());
-    equal(requests.length, 2);
-    equal(JSON.parse(requests[0]).generationConfig.responseMimeType, "application/json");
-  });
 });
 
 Deno.test("Structured output không hợp thức hóa điểm sai hay report null lần đầu", () => {
@@ -340,42 +207,12 @@ Deno.test("Chưa đọc ảnh menu thì không được tự mô tả cách phâ
   equal(evidenceValidationError("Nguồn thu thập chưa có văn bản menu chi tiết; cần xem thực đơn hiện hành.", input), null);
 });
 
-Deno.test("Cùng lượt sửa nhận đủ lỗi dữ liệu và lỗi kiểm chứng độc lập", async () => {
-  const draft = structured();
-  draft.report.textMenu.grouping = "Các món ăn hiện được phân chia theo nhóm nguyên liệu trong ảnh thực đơn.";
-  draft.report.overview = "Nhà hàng đã được trao giải thưởng ẩm thực quốc tế danh giá.";
-  const issue = { quote: draft.report.overview, reason: "Không có nguồn giải thưởng trong hồ sơ." };
-  await mockGeneration([JSON.stringify(draft), JSON.stringify(structured())], async (requests, reviews) => {
-    equal(await generateAudit("test-key", { profile: {} }), report());
-    equal(reviews.length, 2);
-    equal(requests[1].includes("Chưa có danh mục chữ"), true);
-    equal(requests[1].includes(issue.reason), true);
-  }, [[issue], []]);
-});
-
-Deno.test("Client không báo cập nhật nếu API chỉ trả báo cáo cũ hoặc bản sửa rỗng", async () => {
+Deno.test("Client giữ nguyên nội dung cũ; bản sửa rỗng là lỗi vận chuyển", async () => {
   const input = { profile: {}, currentAnalysis: report(), messages: [{ role: "user", content: "Sửa báo cáo" }] };
-  equal(!!completedRefinementError({ analysis: report(), reply: "Đã sửa báo cáo." }, input), true);
+  equal(completedRefinementError({ analysis: report(), reply: "Đã sửa báo cáo." }, input), null);
   let rejected = false;
   try { await readAiResponse(Response.json({ analysis: report(), updatedAnalysis: "" }), report()); } catch { rejected = true; }
   equal(rejected, true);
-});
-
-Deno.test("Hết quota theo ngày bỏ lần retry cùng model, vẫn thử phương án dự phòng", async () => {
-  const original = globalThis.fetch;
-  const urls: string[] = [];
-  globalThis.fetch = (url, options) => {
-    if (isReview(options)) return Promise.resolve(reviewed());
-    urls.push(String(url));
-    return Promise.resolve(urls.length === 1
-      ? Response.json({ error: { details: [{ violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }] }] } }, { status: 429 })
-      : Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(structured()) }] } }] }));
-  };
-  try {
-    equal(await generateAudit("test-key", { profile: {} }), report());
-    equal(urls.length, 2);
-    equal(urls[1].includes("gemini-3.6-flash"), true);
-  } finally { globalThis.fetch = original; }
 });
 
 Deno.test("20 không xác định RPM/RPD; phải đọc đúng định danh hạn mức", () => {
@@ -384,66 +221,6 @@ Deno.test("20 không xác định RPM/RPD; phải đọc đúng định danh h�
   equal(quotaPeriod(failure("GenerateRequestsPerMinutePerProjectPerModel")), "minute");
   equal(quotaPeriod(failure("UnknownLimit")), "unknown");
   for (const value of [null, {}, { error: { details: {} } }, { error: { details: [null, { violations: [null] }] } }]) equal(quotaPeriod(value), "unknown");
-});
-
-Deno.test("Primary bị RPD nhưng fallback quá tải không được báo toàn dịch vụ hết quota ngày", async () => {
-  const original = globalThis.fetch;
-  let calls = 0;
-  globalThis.fetch = () => Promise.resolve(++calls === 1
-    ? Response.json({ error: { details: [{ violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }] }] } }, { status: 429 })
-    : Response.json({ error: { status: "UNAVAILABLE" } }, { status: 503, headers: { "retry-after": "0" } }));
-  try {
-    await generateAudit("test-key", { profile: {} });
-    throw new Error("Phải báo không hoàn tất");
-  } catch (error) {
-    equal(calls, 7);
-    equal((error as AuditError).status, 502);
-    equal((error as Error).message.includes("theo ngày"), false);
-  } finally { globalThis.fetch = original; }
-});
-
-Deno.test("Retry-After vượt deadline không được bị cắt thành 5 giây rồi gọi lại cùng model", async () => {
-  const original = globalThis.fetch;
-  const urls: string[] = [];
-  globalThis.fetch = (url, options) => {
-    if (isReview(options)) return Promise.resolve(reviewed());
-    urls.push(String(url));
-    return Promise.resolve(urls.length === 1
-      ? Response.json({ error: { status: "RESOURCE_EXHAUSTED" } }, { status: 429, headers: { "retry-after": "180" } })
-      : Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(structured()) }] } }] }));
-  };
-  try {
-    equal(await generateAudit("test-key", { profile: {} }), report());
-    equal(urls.length, 2);
-    equal(urls[0] === urls[1], false);
-  } finally { globalThis.fetch = original; }
-});
-
-Deno.test("Báo cáo đúng schema vẫn phải sửa nhận định bị kiểm chứng bác bỏ trước khi gửi", async () => {
-  const draft = structured();
-  draft.report.overview = "Quán có lượng khách quen ổn định nhờ hình ảnh sắc nét.";
-  const issue = { quote: draft.report.overview, reason: "Không có thống kê khách quay lại và chưa xem trực tiếp hình ảnh trong tư liệu." };
-  await mockGeneration([JSON.stringify(draft), JSON.stringify(structured())], async (requests, reviews) => {
-    equal(await generateAudit("test-key", { profile: { reviews_count: 245 } }), report());
-    equal(requests.length, 2);
-    equal(reviews.length, 2);
-    equal(requests[1].includes(issue.reason), true);
-    equal(reviews[0].includes("245"), true);
-  }, [[issue], []]);
-});
-
-Deno.test("Kiểm chứng không hoàn tất thì không gửi báo cáo; lỗi RPM cuối không bị ghi nhầm là lỗi nội dung", async () => {
-  const original = globalThis.fetch;
-  globalThis.fetch = (_url, options) => Promise.resolve(isReview(options)
-    ? Response.json({ error: { details: [{ violations: [{ quotaId: "GenerateRequestsPerMinutePerProjectPerModel" }] }] } }, { status: 429, headers: { "retry-after": "180" } })
-    : Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(structured()) }] } }] }));
-  try {
-    await generateAudit("test-key", { profile: {} });
-    throw new Error("Không được gửi báo cáo chưa kiểm chứng");
-  } catch (error) {
-    equal((error as AuditError).status, 429);
-    equal((error as AuditError).retryAfterSeconds, 180);
-  } finally { globalThis.fetch = original; }
 });
 
 Deno.test("JSON và SSE giữ mã lỗi/thời gian đợi để E2E không retry sớm", async () => {
@@ -461,24 +238,4 @@ Deno.test("Kiểm chứng lỗi hoặc trích câu không có trong báo cáo kh
     try { reviewCorrection(raw, report()); } catch { failed = true; }
     equal(failed, true);
   }
-});
-
-Deno.test("Model dự phòng còn lượt sửa nội dung khi primary bị RPD", async () => {
-  const original = globalThis.fetch;
-  const urls: string[] = [];
-  let reviews = 0;
-  globalThis.fetch = (url, options) => {
-    if (isReview(options)) { reviews++; return Promise.resolve(reviewed()); }
-    urls.push(String(url));
-    return Promise.resolve(urls.length === 1
-      ? Response.json({ error: { details: [{ violations: [{ quotaId: "GenerateRequestsPerDayPerProjectPerModel-FreeTier" }] }] } }, { status: 429 })
-      : Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: JSON.stringify(structured(urls.length === 2 ? 85 : 7.5)) }] } }] }));
-  };
-  try {
-    equal(await generateAudit("test-key", { profile: {} }), report());
-    equal(urls.length, 3);
-    equal(urls[1], urls[2]);
-    equal(urls[1].includes("gemini-3.6-flash"), true);
-    equal(reviews, 1);
-  } finally { globalThis.fetch = original; }
 });

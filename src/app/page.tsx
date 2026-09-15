@@ -1,9 +1,8 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AiResponseError, completedReportError, completedRefinementError, readAiResponse, requestAiAudit, refinementPreview } from "@/lib/ai-response";
+import { AiResponseError, completedRefinementError, readAiResponse, requestAiAudit, refinementPreview } from "@/lib/ai-response";
 import { getAiEndpoint } from "@/lib/ai-config";
-import { AUDIT_VERSION } from "../../supabase/functions/_shared/audit";
 import {
   type BusinessProfile,
   type ChatMessage,
@@ -191,7 +190,7 @@ export default function HomePage() {
           // Khôi phục bộ nhớ ẩn (chat history & các quyết định chỉnh sửa) của riêng nhà hàng này
           const memory = getVenueAuditMemory(dataId);
           if (memory && memory.analysis) {
-            setAi({ status: "done", analysis: memory.analysis, stale: memory.version !== AUDIT_VERSION || !!completedReportError(memory.analysis, { profile: data.profile, messages: memory.messages }) });
+            setAi({ status: "done", analysis: memory.analysis });
             setChatMessages(memory.messages || []);
           } else {
             setAi({ status: "idle" });

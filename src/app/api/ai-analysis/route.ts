@@ -5,7 +5,7 @@ import { AuditError, auditEventStream, generateAudit, parseAuditInput } from "..
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 120;
+export const maxDuration = 60;
 
 export async function POST(request: NextRequest) {
   const apiKey = getAiApiKey();
@@ -19,7 +19,7 @@ export async function POST(request: NextRequest) {
   }
   try {
     const text = await generateAudit(apiKey, input, request.signal);
-    const result = splitRefinement(text)!;
+    const result = splitRefinement(text) ?? { reply: "", updatedAnalysis: text };
     return NextResponse.json({ ...result, analysis: result.updatedAnalysis ?? input.currentAnalysis });
   } catch (error) {
     return NextResponse.json({ error: error instanceof AuditError ? error.message : "Không thể hoàn thành phân tích.",

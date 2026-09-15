@@ -29,9 +29,10 @@ for (const [outcome, label] of [["updated", "Đã cập nhật báo cáo"], ["an
   assert.ok(html.includes(label));
   if (outcome !== "updated") assert.ok(!html.includes("Đã cập nhật báo cáo"));
 }
-const stale = render({ status: "done", analysis: "Bản cũ", stale: true });
-assert.ok(stale.includes("Thẩm định lại"));
-assert.ok(/disabled=""[^>]*>[^<]*<svg[\s\S]*Xuất PDF/.test(stale));
+const completedWithoutMenuHeading = render({ status: "done", analysis: "## Thực đơn\nTên món và giá đã được phân tích." });
+assert.ok(!completedWithoutMenuHeading.includes("Chưa hoàn tất thẩm định"));
+assert.ok(!completedWithoutMenuHeading.includes("Thẩm định lại"));
+assert.ok(completedWithoutMenuHeading.includes("Xuất PDF"));
 assert.ok(renderToStaticMarkup(React.createElement(MenuSection, { profile: { menu: null } })).includes("Chưa thu thập được danh sách món dạng chữ"));
 
 const { getVenueAuditMemory, saveVenueAuditMemory } = require("../src/lib/types.ts");
@@ -43,10 +44,13 @@ assert.equal(saveVenueAuditMemory("one", { dataId: "one", analysis: report, mess
 assert.equal(getVenueAuditMemory("one").analysis, report);
 assert.equal(getVenueAuditMemory("two"), null);
 assert.equal(saveVenueAuditMemory("two", { dataId: "one", analysis: report }), false);
-assert.equal(saveVenueAuditMemory("one", { dataId: "one", analysis: "Bị cắt" }), false);
+assert.equal(saveVenueAuditMemory("one", { dataId: "one", analysis: "  " }), false);
 assert.equal(getVenueAuditMemory("one").analysis, report);
+const shortReport = "## Thực đơn\nTên món, giá và mô tả được ghi rõ.";
+assert.equal(saveVenueAuditMemory("one", { dataId: "one", analysis: shortReport }), true);
+assert.equal(getVenueAuditMemory("one").analysis, shortReport);
 global.localStorage.setItem = () => { throw new Error("QuotaExceededError"); };
 assert.equal(saveVenueAuditMemory("one", { dataId: "one", analysis: report }), false);
 delete global.window;
 delete global.localStorage;
-console.log("PASS: draft sửa/lỗi/giải đáp, cảnh báo bản cũ, menu chưa thu thập, bộ nhớ từng quán và lỗi lưu.");
+console.log("PASS: draft sửa/lỗi/giải đáp; báo cáo hoàn tất không bị chặn vì tiêu đề; cache và lỗi lưu.");

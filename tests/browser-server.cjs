@@ -34,8 +34,8 @@ const log = e => { events.push(e); fs.writeFileSync(path.join(dir, "browser-requ
         const index = venues.findIndex(v => v.dataId === body.profile.data_id);
         const file = path.join(dir, `${index + 1}-case.json`);
         const recorded = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : null;
-        const usable = recorded && !completedReportError(recorded.initial, { profile: body.profile }) && !completedReportError(recorded.refined, { profile: body.profile });
-        const initial = fixtureReport(body.profile);
+        const usable = !process.argv.includes("--hotfix") && recorded && !completedReportError(recorded.initial, { profile: body.profile }) && !completedReportError(recorded.refined, { profile: body.profile });
+        const initial = process.argv.includes("--hotfix") ? fixtureReport(body.profile).replace("## Đánh giá về Text Menu", "## Thực đơn dạng chữ") : fixtureReport(body.profile);
         const c = usable ? recorded : { initial, refined: initial.replace("Dùng điện thoại để", "Mỗi thứ Hai, dùng điện thoại để"), reply: "Đã bổ sung lịch kiểm tra mỗi thứ Hai." };
         const chat = !!body.messages?.length;
         const last = body.messages?.at(-1)?.content || "";
