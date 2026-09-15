@@ -3,6 +3,7 @@ require("./register.cjs");
 const { POST } = require("../src/app/api/ai-analysis/route.ts");
 const { AUDIT_PROMPT_VERSION, AUDIT_SYSTEM_INSTRUCTION, CHAT_MARKER, REPORT_MARKER } = require("../supabase/functions/_shared/audit.ts");
 const { readAiResponse } = require("../src/lib/ai-response.ts");
+const { getAiEndpoint } = require("../src/lib/ai-config.ts");
 
 // Kiểm tra request thật của route; phản hồi model giả lập, không đo chất lượng AI.
 const profile = { title: "Quán kiểm thử", address: "Hội An, Đà Nẵng", description: null, price: null, similar_places: [{ title: "Quán bên cạnh", rating: null }], menu: { categories: [
@@ -16,9 +17,12 @@ const latestInstruction = "Hội an đã được gộp vào đà nẵng đồ n
 const oldConfirmation = 'Đã cập nhật báo cáo theo yêu cầu: "Dùng đơn vị hành chính mới"';
 const originalFetch = globalThis.fetch;
 const originalKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
+const originalEndpoint = process.env.NEXT_PUBLIC_AI_ANALYSIS_URL;
 
 (async () => {
   process.env.GOOGLE_AI_STUDIO_API_KEY = "test-key";
+  process.env.NEXT_PUBLIC_AI_ANALYSIS_URL = "https://legacy.example.test/functions/v1/ai-analysis";
+  assert.equal(getAiEndpoint(), "/api/ai-analysis");
   for (const chat of [false, true]) {
     let calls = 0;
     globalThis.fetch = async (url, options) => {
@@ -63,4 +67,6 @@ const originalKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
   globalThis.fetch = originalFetch;
   if (originalKey === undefined) delete process.env.GOOGLE_AI_STUDIO_API_KEY;
   else process.env.GOOGLE_AI_STUDIO_API_KEY = originalKey;
+  if (originalEndpoint === undefined) delete process.env.NEXT_PUBLIC_AI_ANALYSIS_URL;
+  else process.env.NEXT_PUBLIC_AI_ANALYSIS_URL = originalEndpoint;
 });

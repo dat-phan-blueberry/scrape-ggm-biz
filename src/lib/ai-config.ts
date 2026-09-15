@@ -3,5 +3,5 @@ export function getAiApiKey(): string | undefined {
 }
 
 export function getAiEndpoint(): string {
-  return process.env.NEXT_PUBLIC_AI_ANALYSIS_URL?.trim() || "/api/ai-analysis";
+  return "/api/ai-analysis";
 }

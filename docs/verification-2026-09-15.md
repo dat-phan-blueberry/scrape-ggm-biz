@@ -1,5 +1,19 @@
 # Kiểm thử Địa Bạ — 15/09/2026
 
+## Chốt Next.js và sửa xác nhận hoàn tất stream
+
+- Network do chú gửi cho thấy website Netlify đã gọi URL Supabase Edge; đây là thông
+  tin mới thay cho suy đoán trước rằng production đi qua Next. Chú xác nhận chỉ dùng Next.js.
+- Đã bỏ override `NEXT_PUBLIC_AI_ANALYSIS_URL`: tạo mới và biên tập luôn gọi
+  `/api/ai-analysis` cùng website. Không cần đổi cấu hình/triển khai Supabase.
+- Tái hiện **ba test fail trước sửa**: reader tự cancel ngay sau DONE; trả thành công
+  khi HTTP đứt sau DONE; bỏ qua sự kiện error dạng object. Đã sửa đọc hết HTTP trước
+  khi xác nhận thành công, chỉ cancel khi lỗi, nhận cả lỗi string/object.
+- **PASS:** 42 tests Deno, hai ca Next SSE/JSON mock (gán URL ngoài vào biến cũ vẫn gọi
+  Next), render/storage, build production và diff check. Không gọi Gemini/SerpAPI thật.
+- Không chạy trọn browser E2E trong lượt này; các máy chủ QA đã dừng. Không dùng
+  kiểm thử vận chuyển để tuyên bố report Gemini thật đã đúng. Chú tự push Next.js.
+
 ## Bản 2026-09-15.4 — ngôn ngữ chủ quán và suy luận có căn cứ
 
 - Theo phản hồi Anabas và yêu cầu không lộ thuật ngữ lập trình, chuyển hồ sơ/menu

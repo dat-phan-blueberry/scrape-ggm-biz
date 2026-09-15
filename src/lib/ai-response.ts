@@ -12,6 +12,12 @@ export interface AiResponse {
   updatedAnalysis?: string | null;
 }
 
+function responseErrorMessage(error: unknown, fallback: string): string {
+  if (typeof error === "string" && error.trim()) return error;
+  if (error && typeof error === "object" && "message" in error && typeof error.message === "string") return error.message;
+  return fallback;
+}
+
 /** Hoàn tất vận chuyển không phụ thuộc cách model đặt tiêu đề. */
 export function completedReportError(text: string, input?: AuditInput): string | null {
   return text.trim() ? null : "Không nhận được nội dung báo cáo.";
@@ -42,7 +48,7 @@ export function refinementPreview(text: string): string {
 export async function readAiResponse(res: Response, currentAnalysis?: string, onText?: (text: string) => void): Promise<AiResponse> {
   if (!res.headers.get("content-type")?.includes("text/event-stream")) {
     const data = await res.json().catch(() => null);
-    if (!res.ok || data?.error) throw new AiResponseError(data?.error || `Dịch vụ phân tích trả lỗi ${res.status}.`, "response", "", data?.retryAfterSeconds, res.status);
+    if (!res.ok || data?.error) throw new AiResponseError(responseErrorMessage(data?.error, `Dịch vụ phân tích trả lỗi ${res.status}.`), "response", "", data?.retryAfterSeconds, res.status);
     if (!data || typeof data !== "object") throw new AiResponseError("Không nhận được báo cáo hoàn chỉnh.", "response");
     return normalizeResponse(data, currentAnalysis);
   }
@@ -53,6 +59,7 @@ export async function readAiResponse(res: Response, currentAnalysis?: string, on
   let eventLines: string[] = [];
   let text = "";
   let completed = false;
+  let bodyEnded = false;
   let snapshot: Record<string, unknown> | undefined;
   const dispatch = () => {
     if (!eventLines.length) return;
@@ -63,7 +70,7 @@ export async function readAiResponse(res: Response, currentAnalysis?: string, on
     try { event = JSON.parse(payload); }
     catch { throw new AiResponseError("Phản hồi bị thiếu hoặc sai định dạng trong lúc truyền. Vui lòng thử lại.", "response", text); }
     if (!event || typeof event !== "object") throw new AiResponseError("Dịch vụ trả phản hồi không hợp lệ. Vui lòng thử lại.", "response", text);
-    if (typeof event.error === "string") throw new AiResponseError(event.error, "response", text, event.retryAfterSeconds, event.status);
+    if (event.error) throw new AiResponseError(responseErrorMessage(event.error, "Dịch vụ phân tích không hoàn tất yêu cầu."), "response", text, event.retryAfterSeconds, event.status);
     if (typeof event.text === "string") { text += event.text; onText?.(text); }
     if (typeof event.analysis === "string" || typeof event.updatedAnalysis === "string" || event.updatedAnalysis === null) {
       snapshot = { ...snapshot, ...event };
@@ -76,15 +83,16 @@ export async function readAiResponse(res: Response, currentAnalysis?: string, on
     else if (value.startsWith("data:")) eventLines.push(value.slice(5).trimStart());
   };
   try {
-    while (!completed) {
+    while (!bodyEnded) {
       const { done, value } = await reader.read();
+      bodyEnded = done;
       buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
       let end: number;
-      while (!completed && (end = buffer.indexOf("\n")) >= 0) {
+      while ((end = buffer.indexOf("\n")) >= 0) {
         line(buffer.slice(0, end).replace(/\r$/, ""));
         buffer = buffer.slice(end + 1);
       }
-      if (done && !completed) {
+      if (done) {
         if (buffer) line(buffer.replace(/\r$/, ""));
         dispatch();
         break;
@@ -95,7 +103,8 @@ export async function readAiResponse(res: Response, currentAnalysis?: string, on
     if (error instanceof AiResponseError) throw error;
     throw new AiResponseError("Kết nối bị gián đoạn trong lúc nhận báo cáo. Vui lòng thử lại.", "connection", text);
   } finally {
-    await reader.cancel().catch(() => undefined);
+    // Chỉ hủy khi có lỗi; DONE chưa chứng minh HTTP đã kết thúc bình thường.
+    if (!bodyEnded) await reader.cancel().catch(() => undefined);
     reader.releaseLock();
   }
   if (snapshot && ("analysis" in snapshot || "updatedAnalysis" in snapshot)) return normalizeResponse(snapshot, currentAnalysis);

@@ -63,8 +63,9 @@ Khi cả bốn key đều nghỉ, API trả 429 kèm câu nói rõ giờ hạn m
    Route chuẩn hóa dữ liệu thô về `BusinessProfile` (xem `src/lib/types.ts`):
    giờ mở cửa, histogram điểm, thực đơn, đánh giá, giờ cao điểm, phân bố giá…
 3. **Thẩm định** — `POST /api/ai-analysis` gửi tư liệu có nhãn kinh doanh cho
-   Gemini, trả báo cáo tiếng Việt dành cho chủ nhà hàng và đội sales. Prompt và
-   kiểm tra kết quả dùng chung với Supabase Edge tại `supabase/functions/_shared/`.
+   Gemini, trả báo cáo tiếng Việt dành cho chủ nhà hàng và đội sales. Giao diện chỉ gọi
+   API Next.js cùng website; không dùng `NEXT_PUBLIC_AI_ANALYSIS_URL` hoặc gọi Edge.
+   `GOOGLE_AI_STUDIO_API_KEY` được đọc ở máy chủ Next.js.
    Mỗi thao tác gọi Gemini một lần, đầu ra Markdown theo prompt gọn. Không có lượt
    kiểm chứng hoặc thử lại tự động; giữ contract SSE/JSON với frontend.
 4. **Xuất PDF** — nút "Xuất PDF" trên báo cáo mở cửa sổ xem trước A4 thương
@@ -129,7 +130,7 @@ trực tiếp trước mặt chủ quán khi tư vấn.
 Kiểm tra cục bộ (không gọi Gemini thật):
 
 ```bash
-deno test --no-config --allow-env tests/audit.test.ts tests/hotfix.test.ts tests/audit-evidence.test.ts
+deno test --no-config --allow-env tests/audit.test.ts tests/hotfix.test.ts tests/audit-evidence.test.ts tests/stream-completion.test.ts
 node tests/audit-ui.cjs
 node tests/audit-next.cjs
 deno check --no-config supabase/functions/ai-analysis/index.ts
@@ -161,6 +162,6 @@ với dữ liệu thu thập; phát lại báo cáo thật nếu hợp lệ ho�
 Đây là kiểm tra UI/transport, không được dùng để tuyên bố chất lượng AI thật đã đạt.
 Kết quả và giới hạn đợt này: [biên bản kiểm thử](docs/verification-2026-09-15.md).
 
-Khi phát hành cần cập nhật cả Next và Edge nếu đang cấu hình
-`NEXT_PUBLIC_AI_ANALYSIS_URL`. Chất lượng văn phong thực tế cần kiểm tra bằng báo
-cáo Gemini thật; bộ kiểm thử cục bộ dùng phản hồi giả lập để kiểm tra logic.
+Phát hành cùng bản Next.js trên Netlify; không cần triển khai Supabase.
+Biến `NEXT_PUBLIC_AI_ANALYSIS_URL` cũ không còn tác dụng. Chất lượng văn phong thực tế
+cần kiểm tra bằng báo cáo Gemini thật; bộ kiểm thử cục bộ dùng phản hồi giả lập.
