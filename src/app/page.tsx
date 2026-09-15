@@ -1,7 +1,9 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AiResponseError, completedReportError, readAiResponse, requestAiAudit } from "@/lib/ai-response";
+import { AiResponseError, completedReportError, completedRefinementError, readAiResponse, requestAiAudit, refinementPreview } from "@/lib/ai-response";
+import { getAiEndpoint } from "@/lib/ai-config";
+import { AUDIT_VERSION } from "../../supabase/functions/_shared/audit";
 import {
   type BusinessProfile,
   type ChatMessage,
@@ -55,13 +57,23 @@ export default function HomePage() {
   const [ai, setAi] = useState<AiState>({ status: "idle" });
   const [chatMessages, setChatMessages] = useState<ChatMessage[]>([]);
   const [isRefining, setIsRefining] = useState(false);
+  const [refinementDraft, setRefinementDraft] = useState("");
+  const [saveWarning, setSaveWarning] = useState("");
   const [currentUser, setCurrentUser] = useState<string | null>(null);
 
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
   const abortRef = useRef<AbortController | null>(null);
+  const profileAbortRef = useRef<AbortController | null>(null);
+  const auditAbortRef = useRef<AbortController | null>(null);
   const lastFetchRef = useRef<{ dataId: string; lat: number | null; lng: number | null } | null>(null);
+  useEffect(() => () => {
+    abortRef.current?.abort();
+    profileAbortRef.current?.abort();
+    auditAbortRef.current?.abort();
+    if (debounceRef.current) clearTimeout(debounceRef.current);
+  }, []);
 
   /* ---------- Thông tin người dùng & Đăng xuất ---------- */
 
@@ -142,6 +154,14 @@ export default function HomePage() {
 
   const fetchProfile = useCallback(
     async (dataId: string, lat: number | null, lng: number | null, displayName: string) => {
+      if (debounceRef.current) clearTimeout(debounceRef.current);
+      abortRef.current?.abort();
+      setSearching(false);
+      profileAbortRef.current?.abort();
+      auditAbortRef.current?.abort();
+      auditAbortRef.current = null;
+      const controller = new AbortController();
+      profileAbortRef.current = controller;
       lastFetchRef.current = { dataId, lat, lng };
       setSelectedName(displayName);
       setDropdownOpen(false);
@@ -152,13 +172,16 @@ export default function HomePage() {
       setAi({ status: "idle" });
       setChatMessages([]);
       setIsRefining(false);
+      setRefinementDraft("");
+      setSaveWarning("");
       window.scrollTo({ top: 0, behavior: "smooth" });
       try {
         const params = new URLSearchParams({ data_id: dataId });
         if (lat != null) params.set("lat", String(lat));
         if (lng != null) params.set("lng", String(lng));
-        const res = await fetch(`/api/business-profile?${params.toString()}`);
+        const res = await fetch(`/api/business-profile?${params.toString()}`, { signal: controller.signal });
         const data = await res.json();
+        if (controller.signal.aborted) return;
         if (!res.ok || data.error) {
           setError(data.error || `Lỗi ${res.status} khi lấy hồ sơ`);
         } else {
@@ -168,7 +191,7 @@ export default function HomePage() {
           // Khôi phục bộ nhớ ẩn (chat history & các quyết định chỉnh sửa) của riêng nhà hàng này
           const memory = getVenueAuditMemory(dataId);
           if (memory && memory.analysis) {
-            setAi({ status: "done", analysis: memory.analysis });
+            setAi({ status: "done", analysis: memory.analysis, stale: memory.version !== AUDIT_VERSION || !!completedReportError(memory.analysis, { profile: data.profile, messages: memory.messages }) });
             setChatMessages(memory.messages || []);
           } else {
             setAi({ status: "idle" });
@@ -176,9 +199,9 @@ export default function HomePage() {
           }
         }
       } catch {
-        setError("Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.");
+        if (!controller.signal.aborted) setError("Không kết nối được máy chủ. Kiểm tra mạng rồi thử lại.");
       } finally {
-        setLoading(false);
+        if (!controller.signal.aborted) setLoading(false);
       }
     },
     []
@@ -210,26 +233,35 @@ export default function HomePage() {
   /* ---------- Thẩm định AI ---------- */
 
   const runAiAudit = async () => {
-    if (!profile) return;
+    if (!profile || auditAbortRef.current) return;
+    const controller = new AbortController();
+    auditAbortRef.current = controller;
+    const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
     setAi({ status: "streaming", analysis: "" });
-    const endpoint = process.env.NEXT_PUBLIC_AI_ANALYSIS_URL?.trim() || "/api/ai-analysis";
+    setChatMessages([]);
+    setSaveWarning("");
+    const endpoint = getAiEndpoint();
     try {
       const analysis = await requestAiAudit(endpoint, { profile }, (text) => {
-        setAi({ status: "streaming", analysis: text });
-      });
+        if (!controller.signal.aborted) setAi({ status: "streaming", analysis: text });
+      }, controller.signal);
+      if (controller.signal.aborted) return;
       setAi({ status: "done", analysis });
-      const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
       if (targetDataId) {
-        saveVenueAuditMemory(targetDataId, {
+        const saved = saveVenueAuditMemory(targetDataId, {
           dataId: targetDataId, title: profile.title, lastUpdated: Date.now(), analysis, messages: [],
         });
+        if (!saved) setSaveWarning("Báo cáo đã cập nhật trên màn hình nhưng trình duyệt chưa lưu được. Hãy xuất PDF để giữ bản này.");
       }
     } catch (error) {
+      if (controller.signal.aborted) return;
       setAi({
         status: "error",
         message: error instanceof AiResponseError ? error.message : "Không kết nối được máy chủ. Vui lòng thử lại.",
         analysis: error instanceof AiResponseError ? error.draft : undefined,
       });
+    } finally {
+      if (auditAbortRef.current === controller) auditAbortRef.current = null;
     }
   };
 
@@ -237,7 +269,10 @@ export default function HomePage() {
 
   const handleRefine = useCallback(
     async (instruction: string) => {
-      if (!profile || ai.status !== "done") return;
+      if (!profile || ai.status !== "done" || auditAbortRef.current) return;
+      const controller = new AbortController();
+      auditAbortRef.current = controller;
+      const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
       const userMsg: ChatMessage = {
         id: `user-${Date.now()}`,
         role: "user",
@@ -247,68 +282,79 @@ export default function HomePage() {
       const updatedMessages = [...chatMessages, userMsg];
       setChatMessages(updatedMessages);
       setIsRefining(true);
+      setRefinementDraft("");
+      setSaveWarning("");
 
-      const endpoint =
-        process.env.NEXT_PUBLIC_AI_ANALYSIS_URL?.trim() || "/api/ai-analysis";
+      const endpoint = getAiEndpoint();
 
       try {
         const res = await fetch(endpoint, {
           method: "POST",
           headers: { "Content-Type": "application/json" },
+          signal: controller.signal,
           body: JSON.stringify({
             profile,
             currentAnalysis: ai.analysis,
-            messages: updatedMessages.map((m) => ({
+            messages: updatedMessages.filter(m => m.outcome !== "error").map((m) => ({
               role: m.role,
               content: m.content,
             })),
           }),
         });
 
-        const data = await readAiResponse(res, ai.analysis);
-        const validationError = completedReportError(data.updatedAnalysis || data.analysis || ai.analysis);
+        const data = await readAiResponse(res, ai.analysis, text => {
+          if (!controller.signal.aborted) setRefinementDraft(refinementPreview(text));
+        });
+        if (controller.signal.aborted) return;
+        const validationError = completedRefinementError(data, { profile, currentAnalysis: ai.analysis, messages: updatedMessages });
         if (validationError) throw new AiResponseError(validationError, "validation");
-        const targetReport: string = (data.updatedAnalysis || data.analysis || ai.analysis || "").trim();
-        if (targetReport && targetReport !== ai.analysis) {
-          setAi({ status: "done", analysis: targetReport });
-        }
+        const targetReport = data.analysis.trim();
+        const changed = targetReport !== ai.analysis;
+        setAi({ status: "done", analysis: targetReport });
 
         const botResponse =
           data.reply?.trim() ||
-          (data.updatedAnalysis
+          (changed
             ? `Đã cập nhật báo cáo theo yêu cầu: "${instruction}"`
-            : "Đã tiếp nhận và xử lý yêu cầu của bạn.");
+            : "Đã giải đáp; báo cáo được giữ nguyên.");
 
         const modelMsg: ChatMessage = {
           id: `model-${Date.now()}`,
           role: "model",
           content: botResponse,
           timestamp: Date.now(),
+          outcome: changed ? "updated" : "answered",
         };
         const finalMessages = [...updatedMessages, modelMsg];
         setChatMessages(finalMessages);
 
         // Tự động append và lưu ngầm toàn bộ lịch sử chỉnh sửa & quyết định của nhà hàng
-        const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
         if (targetDataId) {
-          saveVenueAuditMemory(targetDataId, {
+          const saved = saveVenueAuditMemory(targetDataId, {
             dataId: targetDataId,
             title: profile.title,
             lastUpdated: Date.now(),
-            analysis: targetReport || ai.analysis,
+            analysis: targetReport,
             messages: finalMessages,
           });
+          if (!saved) setSaveWarning("Báo cáo đã cập nhật trên màn hình nhưng trình duyệt chưa lưu được. Hãy xuất PDF để giữ bản này.");
         }
       } catch (error) {
+        if (controller.signal.aborted) return;
         const errorMsg: ChatMessage = {
           id: `model-${Date.now()}`,
           role: "model",
           content: error instanceof AiResponseError ? error.message : "Lỗi kết nối khi gửi yêu cầu chỉnh sửa. Vui lòng thử lại.",
           timestamp: Date.now(),
+          outcome: "error",
         };
         setChatMessages([...updatedMessages, errorMsg]);
       } finally {
-        setIsRefining(false);
+        if (auditAbortRef.current === controller) {
+          auditAbortRef.current = null;
+          setIsRefining(false);
+          setRefinementDraft("");
+        }
       }
     },
     [profile, ai, chatMessages]
@@ -317,6 +363,11 @@ export default function HomePage() {
   /* ---------- Đặt lại / Khảo sát lại từ đầu ---------- */
 
   const handleResetAudit = useCallback(() => {
+    auditAbortRef.current?.abort();
+    auditAbortRef.current = null;
+    setIsRefining(false);
+    setRefinementDraft("");
+    setSaveWarning("");
     const targetDataId = profile?.data_id || lastFetchRef.current?.dataId;
     if (targetDataId) {
       clearVenueAuditMemory(targetDataId);
@@ -604,11 +655,14 @@ export default function HomePage() {
                 <GallerySection profile={profile} />
                 <SimilarSection profile={profile} onSelect={handleSelectSimilar} />
                 <AiAuditSection
+                  key={profile.data_id || selectedName}
                   state={ai}
                   onRun={runAiAudit}
                   restaurant={profile.title || selectedName}
                   onRefine={handleRefine}
                   isRefining={isRefining}
+                  refinementDraft={refinementDraft}
+                  saveWarning={saveWarning}
                   chatMessages={chatMessages}
                   onResetAudit={handleResetAudit}
                 />

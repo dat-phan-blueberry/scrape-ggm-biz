@@ -1,5 +1,5 @@
-import { parseAndValidateScore } from "../../supabase/functions/_shared/audit";
-export { parseAndValidateScore, cleanBusinessReportText, reportValidationError, splitRefinement } from "../../supabase/functions/_shared/audit";
+import { AUDIT_VERSION, parseAndValidateScore, reportValidationError } from "../../supabase/functions/_shared/audit.ts";
+export { parseAndValidateScore, cleanBusinessReportText, reportValidationError, splitRefinement } from "../../supabase/functions/_shared/audit.ts";
 /** Một gợi ý từ SerpAPI google_maps_autocomplete */
 export interface Suggestion {
   value: string;
@@ -109,6 +109,9 @@ export interface BusinessProfile {
   menu: {
     highlights: MenuHighlight[];
     categories: MenuCategory[];
+    link?: string;
+    source?: string;
+    images?: Array<{ thumbnail: string; image: string; date: string }>;
   } | null;
   extensions: ExtensionGroup[];
   images: PlaceImage[];
@@ -126,6 +129,7 @@ export interface ChatMessage {
   role: "user" | "model";
   content: string;
   timestamp?: number;
+  outcome?: "updated" | "answered" | "error";
 }
 
 export interface AiAnalysisRequest {
@@ -135,6 +139,7 @@ export interface AiAnalysisRequest {
 }
 
 export interface VenueAuditMemory {
+  version?: string;
   dataId: string;
   title: string;
   lastUpdated: number;
@@ -151,26 +156,26 @@ export function getVenueAuditMemory(dataId: string): VenueAuditMemory | null {
     if (!raw) return null;
     const parsed: VenueAuditMemory = JSON.parse(raw);
     // Nếu bản báo cáo bị cụt lủn (không có điểm cạnh tranh hoặc quá ngắn do lỗi stream mạng), xóa bỏ cache hỏng
-    if (!parsed.analysis || parsed.analysis.length < 300 || !parseAndValidateScore(parsed.analysis)) {
-      localStorage.removeItem(`${STORAGE_PREFIX}${dataId}`);
+    if (parsed.dataId !== dataId || typeof parsed.analysis !== "string" || parsed.analysis.length < 300 || parseAndValidateScore(parsed.analysis) === null) {
       return null;
     }
-    return parsed;
+    return { ...parsed, messages: Array.isArray(parsed.messages) ? parsed.messages.filter(m => m && ["user", "model"].includes(m.role) && typeof m.content === "string") : [] };
   } catch {
     return null;
   }
 }
 
-export function saveVenueAuditMemory(dataId: string, memory: VenueAuditMemory): void {
-  if (typeof window === "undefined" || !dataId) return;
+export function saveVenueAuditMemory(dataId: string, memory: VenueAuditMemory): boolean {
+  if (typeof window === "undefined" || !dataId || memory.dataId !== dataId) return false;
   // Chỉ lưu khi bản báo cáo là hoàn chỉnh (có điểm cạnh tranh hợp lệ và độ dài đủ lớn)
-  if (!memory.analysis || memory.analysis.length < 300 || !parseAndValidateScore(memory.analysis)) {
-    return;
+  if (reportValidationError(memory.analysis)) {
+    return false;
   }
   try {
-    localStorage.setItem(`${STORAGE_PREFIX}${dataId}`, JSON.stringify(memory));
+    localStorage.setItem(`${STORAGE_PREFIX}${dataId}`, JSON.stringify({ ...memory, version: AUDIT_VERSION }));
+    return true;
   } catch {
-    /* localStorage quota hoặc bị chặn */
+    return false;
   }
 }
 

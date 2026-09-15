@@ -108,11 +108,11 @@ export async function serpApiSearch(
     let res: Response;
     let data: any;
     try {
-      res = await fetch(`https://serpapi.com/search.json?${search.toString()}`);
+      res = await fetch(`https://serpapi.com/search.json?${search.toString()}`, { signal: AbortSignal.timeout(25_000) });
       data = await res.json().catch(() => ({}));
     } catch (error) {
       // Lỗi mạng không phải lỗi của key — đừng phạt oan, đừng đốt key kế tiếp.
-      console.error(`[${tag}] không kết nối được SerpAPI:`, error);
+      console.error(`[${tag}] không kết nối được nguồn dữ liệu`);
       throw new SerpApiError(
         "network error",
         502,
@@ -129,7 +129,7 @@ export async function serpApiSearch(
 
     // Log dùng nhãn đã mask, không bao giờ in key ra.
     console.error(
-      `[${tag}] SerpAPI ${failure.kind} · key ${lease.label} · HTTP ${res.status}: ${failure.message}`,
+      `[${tag}] SerpAPI ${failure.kind} · key ${lease.label} · HTTP ${res.status}`,
     );
 
     if (failure.kind === "upstream") {

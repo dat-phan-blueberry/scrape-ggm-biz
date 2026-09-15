@@ -387,10 +387,20 @@ export function ReviewsSection({ profile }: { profile: BusinessProfile }) {
 }
 
 export function MenuSection({ profile }: { profile: BusinessProfile }) {
-  const menu = profile.menu;
-  if (!menu || (menu.highlights.length === 0 && menu.categories.length === 0)) return null;
+  const menu = profile.menu || { highlights: [], categories: [] };
+  const items = menu.categories.flatMap(c => c.items);
   return (
-    <Section title="Thực đơn" icon={IconUtensils} meta={`${menu.categories.length} nhóm món`}>
+    <Section title="Thực đơn" icon={IconUtensils} meta={`${items.length} món dạng chữ · ${menu.images?.length || 0} ảnh menu`}>
+      <p className="mb-3 text-[0.83rem] leading-relaxed text-soft">
+        {items.length ? `Đã thu thập ${items.length} tên món, ${items.filter(i => i.price).length} món có giá và ${items.filter(i => i.description).length} món có mô tả.` : "Chưa thu thập được danh sách món dạng chữ. Cần xem thực đơn trực tiếp trước khi đánh giá tên món, giá, mô tả và cách nhóm món."}
+      </p>
+      {menu.link && <a href={menu.link} target="_blank" rel="noopener noreferrer" className="mb-3 inline-block text-sm font-medium text-moss-deep underline">Mở thực đơn{menu.source ? ` · ${menu.source}` : ""}</a>}
+      {!!menu.images?.length && <div className="mb-4 flex gap-3 overflow-x-auto">
+        {menu.images.map((im, i) => <a key={i} href={im.image || im.thumbnail} target="_blank" rel="noopener noreferrer" className="shrink-0">
+          {/* eslint-disable-next-line @next/next/no-img-element */}
+          <img src={im.thumbnail} alt={`Ảnh thực đơn ${i + 1}`} loading="lazy" className="h-32 rounded-lg border border-line" />
+        </a>)}
+      </div>}
       {menu.highlights.length > 0 && (
         <div className="thin-scroll -mx-1 mb-4 flex gap-3 overflow-x-auto px-1 pb-2">
           {menu.highlights.filter((h) => h.thumbnail).slice(0, 12).map((h, i) => (
@@ -444,7 +454,7 @@ export function MenuSection({ profile }: { profile: BusinessProfile }) {
         </div>
       )}
       <p className="mt-2 font-mono text-[0.66rem] text-soft">
-        * Giá do quán đăng trên Google, có thể chưa cập nhật
+        * Thông tin do nguồn dữ liệu trả về; chưa xác minh độ đầy đủ, ngày cập nhật hoặc nội dung trong ảnh và liên kết.
       </p>
     </Section>
   );
@@ -590,11 +600,11 @@ export type AiState =
   | { status: "idle" }
   | { status: "loading" }
   | { status: "streaming"; analysis: string }
-  | { status: "done"; analysis: string }
+  | { status: "done"; analysis: string; stale?: boolean }
   | { status: "error"; message: string; analysis?: string };
 
 const QUICK_SUGGESTIONS = [
-  "🎯 Nhấn mạnh thiếu Text Menu ảnh hưởng SEO",
+  "🍽️ Phân tích kỹ tên món, giá và mô tả trong Text Menu",
   "📋 Rút ngắn báo cáo (vừa 1 trang in)",
   "🤝 Viết giọng tư vấn gửi trực tiếp chủ quán",
   "🏷️ Bổ sung khuyến nghị kênh Đặt bàn",
@@ -607,6 +617,8 @@ export function AiAuditSection({
   restaurant,
   onRefine,
   isRefining = false,
+  refinementDraft = "",
+  saveWarning = "",
   chatMessages = [],
   onResetAudit,
 }: {
@@ -615,6 +627,8 @@ export function AiAuditSection({
   restaurant: string;
   onRefine?: (instruction: string) => Promise<void>;
   isRefining?: boolean;
+  refinementDraft?: string;
+  saveWarning?: string;
   chatMessages?: ChatMessage[];
   onResetAudit?: () => void;
 }) {
@@ -626,7 +640,7 @@ export function AiAuditSection({
       : null;
 
   const exportPdf = () => {
-    if (state.status !== "done") return;
+    if (state.status !== "done" || isRefining || state.stale) return;
     const opened = openAuditReport({
       restaurant,
       analysis: state.analysis,
@@ -657,8 +671,7 @@ export function AiAuditSection({
         {state.status === "idle" && (
           <div className="flex flex-col items-start gap-3 p-5 sm:flex-row sm:items-center sm:justify-between">
             <p className="max-w-[46ch] text-[0.83rem] leading-relaxed text-soft">
-              Chạy bản thẩm định tự động: chuẩn hóa rubric thang 10, phân tích SEO Text Menu,
-              kiểm tra địa giới sau sáp nhập và gợi ý hành động.
+              Đánh giá cách hồ sơ giúp khách chọn quán, phân tích thực đơn và đề xuất việc nên làm dựa trên thông tin đã thu thập.
             </p>
             <button
               onClick={onRun}
@@ -751,10 +764,10 @@ export function AiAuditSection({
                 {chatMessages.length > 0 && (
                   <span
                     className="inline-flex items-center gap-1.5 rounded-full bg-moss/10 px-2.5 py-1 font-mono text-[0.66rem] font-medium text-moss-deep"
-                    title="Gemini đã ghi nhớ lịch sử trao đổi và các quyết định chỉnh sửa của bạn cho nhà hàng này"
+                    title="Lịch sử trao đổi riêng của nhà hàng này"
                   >
                     <span className="h-1.5 w-1.5 rounded-full bg-moss-deep" />
-                    Đã lưu {Math.floor(chatMessages.length / 2)} quyết định
+                    {chatMessages.filter(m => m.role === "model" && m.outcome !== "error").length} lượt trao đổi
                   </span>
                 )}
                 {score && (
@@ -778,6 +791,7 @@ export function AiAuditSection({
                 )}
                 <button
                   onClick={exportPdf}
+                  disabled={isRefining || state.stale}
                   className="inline-flex items-center gap-1.5 rounded-lg border border-line bg-card px-3 py-1.5 text-[0.74rem] font-semibold shadow-card transition-colors hover:border-moss/50 hover:text-moss-deep"
                 >
                   <IconDownload className="h-3.5 w-3.5" />
@@ -786,8 +800,14 @@ export function AiAuditSection({
               </div>
             </div>
 
-            <div className="p-5">
-              <MarkdownLite text={state.analysis} />
+            <div className="p-5" aria-label="Báo cáo thẩm định" aria-busy={isRefining}>
+              {state.stale && <div className="mb-4 rounded-lg border border-line bg-field p-3 text-sm">
+                <p>Báo cáo lưu theo tiêu chuẩn cũ. Cần thẩm định lại để có đánh giá Text Menu và kiểm tra nội dung mới.</p>
+                <button onClick={onRun} disabled={isRefining} className="mt-2 font-semibold text-moss-deep underline">Thẩm định lại</button>
+              </div>}
+              {saveWarning && <p role="alert" className="mb-3 text-sm text-pin">{saveWarning}</p>}
+              {isRefining && <p role="status" className="mb-3 text-sm font-medium text-moss-deep">{refinementDraft ? "Đang nhận bản chỉnh sửa; sẽ lưu khi hoàn tất." : "Đang chỉnh sửa báo cáo…"}</p>}
+              <MarkdownLite text={isRefining && refinementDraft ? refinementDraft : state.analysis} />
             </div>
 
             {/* ===== KHU VỰC CHAT CẢI THIỆN BÁO CÁO ===== */}
@@ -841,8 +861,9 @@ export function AiAuditSection({
                           m.content
                         ) : (
                           <div className="space-y-1">
-                            <p className="flex items-center gap-1 font-mono text-[0.7rem] font-semibold text-moss-deep">
-                              <IconCheck className="h-3 w-3" /> Đã cập nhật vào bản báo cáo
+                            <p className={`flex items-center gap-1 font-mono text-[0.7rem] font-semibold ${m.outcome === "error" ? "text-pin" : "text-moss-deep"}`}>
+                              {m.outcome === "updated" && <IconCheck className="h-3 w-3" />}
+                              {m.outcome === "updated" ? "Đã cập nhật báo cáo" : m.outcome === "error" ? "Chưa cập nhật — giữ bản trước" : m.outcome === "answered" ? "Đã giải đáp — giữ nguyên báo cáo" : "Phản hồi"}
                             </p>
                             <p className="text-[0.78rem] text-ink/85">{m.content}</p>
                           </div>
@@ -860,7 +881,7 @@ export function AiAuditSection({
                     type="text"
                     value={chatInput}
                     onChange={(e) => setChatInput(e.target.value)}
-                    placeholder="Gõ yêu cầu sửa đổi (VD: Nhấn mạnh SEO do thiếu Text Menu, rút gọn báo cáo...)"
+                    placeholder="Yêu cầu sửa báo cáo hoặc bổ sung thông tin về nhà hàng…"
                     disabled={isRefining}
                     className="min-w-0 flex-1 rounded-lg border border-line bg-card px-3.5 py-2 text-[0.82rem] outline-none transition-shadow focus:border-moss/50 focus:shadow-card disabled:opacity-50"
                   />

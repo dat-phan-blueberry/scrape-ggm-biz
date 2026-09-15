@@ -1,27 +1,10 @@
 const assert = require("node:assert/strict");
-const fs = require("node:fs");
-const path = require("node:path");
-const Module = require("node:module");
-const ts = require("typescript");
-const root = path.resolve(__dirname, "..");
-const originalResolve = Module._resolveFilename;
-Module._resolveFilename = function (name, ...args) {
-  return originalResolve.call(this, name.startsWith("@/") ? path.join(root, "src", name.slice(2)) : name, ...args);
-};
-for (const extension of [".ts", ".tsx"]) {
-  require.extensions[extension] = (module, filename) => {
-    const { outputText } = ts.transpileModule(fs.readFileSync(filename, "utf8"), {
-      compilerOptions: { module: ts.ModuleKind.CommonJS, target: ts.ScriptTarget.ES2020, jsx: ts.JsxEmit.ReactJSX },
-      fileName: filename,
-    });
-    module._compile(outputText, filename);
-  };
-}
+require("./register.cjs");
 const React = require("react");
 const { renderToStaticMarkup } = require("react-dom/server");
-const { AiAuditSection } = require("../src/components/sections.tsx");
-const render = state => renderToStaticMarkup(React.createElement(AiAuditSection, {
-  state, restaurant: "Quán thử nghiệm", onRun() {},
+const { AiAuditSection, MenuSection } = require("../src/components/sections.tsx");
+const render = (state, props = {}) => renderToStaticMarkup(React.createElement(AiAuditSection, {
+  state, restaurant: "Quán thử nghiệm", onRun() {}, ...props,
 }));
 const failed = render({ status: "error", message: "Báo cáo thiếu điểm hợp lệ.", analysis: "Nội dung đã nhận của nhà hàng." });
 assert.ok(failed.includes("Nội dung đã nhận của nhà hàng."));
@@ -36,3 +19,34 @@ const streaming = render({ status: "streaming", analysis: "Báo cáo đang đư�
 assert.ok(streaming.includes("Báo cáo đang được nhận."));
 assert.ok(!streaming.includes("Xuất PDF"));
 console.log("PASS: lỗi giữ nội dung và chặn xuất PDF; điểm 0 hợp lệ; đang nhận chưa được xuất PDF.");
+
+const refining = render({ status: "done", analysis: "Bản trước" }, { isRefining: true, refinementDraft: "Bản mới đang nhận" });
+assert.ok(refining.includes("Bản mới đang nhận"));
+assert.ok(!refining.includes("Bản trước"));
+assert.ok(/disabled=""[^>]*>[^<]*<svg[\s\S]*Xuất PDF/.test(refining));
+for (const [outcome, label] of [["updated", "Đã cập nhật báo cáo"], ["answered", "Đã giải đáp — giữ nguyên báo cáo"], ["error", "Chưa cập nhật — giữ bản trước"]]) {
+  const html = render({ status: "done", analysis: "Bản trước" }, { chatMessages: [{ id: outcome, role: "model", content: "Phản hồi thử", outcome }] });
+  assert.ok(html.includes(label));
+  if (outcome !== "updated") assert.ok(!html.includes("Đã cập nhật báo cáo"));
+}
+const stale = render({ status: "done", analysis: "Bản cũ", stale: true });
+assert.ok(stale.includes("Thẩm định lại"));
+assert.ok(/disabled=""[^>]*>[^<]*<svg[\s\S]*Xuất PDF/.test(stale));
+assert.ok(renderToStaticMarkup(React.createElement(MenuSection, { profile: { menu: null } })).includes("Chưa thu thập được danh sách món dạng chữ"));
+
+const { getVenueAuditMemory, saveVenueAuditMemory } = require("../src/lib/types.ts");
+const report = require("./fixture-report.cjs")({ title: "Quán QA" });
+const stored = new Map();
+global.window = {};
+global.localStorage = { getItem: k => stored.get(k), setItem: (k, v) => stored.set(k, v) };
+assert.equal(saveVenueAuditMemory("one", { dataId: "one", analysis: report, messages: [], title: "Quán QA", lastUpdated: 1 }), true);
+assert.equal(getVenueAuditMemory("one").analysis, report);
+assert.equal(getVenueAuditMemory("two"), null);
+assert.equal(saveVenueAuditMemory("two", { dataId: "one", analysis: report }), false);
+assert.equal(saveVenueAuditMemory("one", { dataId: "one", analysis: "Bị cắt" }), false);
+assert.equal(getVenueAuditMemory("one").analysis, report);
+global.localStorage.setItem = () => { throw new Error("QuotaExceededError"); };
+assert.equal(saveVenueAuditMemory("one", { dataId: "one", analysis: report }), false);
+delete global.window;
+delete global.localStorage;
+console.log("PASS: draft sửa/lỗi/giải đáp, cảnh báo bản cũ, menu chưa thu thập, bộ nhớ từng quán và lỗi lưu.");

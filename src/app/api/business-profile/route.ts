@@ -7,6 +7,7 @@ import type {
   UserReview,
 } from "@/lib/types";
 import { serpApiSearch, SerpApiError } from "@/lib/serpapi";
+import { normalizeMenu } from "@/lib/menu";
 
 /** hours từ SerpAPI là mảng các object 1 khóa: [{"thứ năm": "06:00–23:00"}, ...] */
 function normalizeHours(raw: unknown): DayHours[] {
@@ -110,6 +111,7 @@ export async function GET(request: NextRequest) {
     const data = await serpApiSearch(params, "business-profile");
 
     const pr = data.place_results || {};
+    if (!pr.title) return NextResponse.json({ error: "Nguồn dữ liệu chưa trả về hồ sơ địa điểm này." }, { status: 404 });
 
     const profile: BusinessProfile = {
       title: pr.title || "",
@@ -142,22 +144,7 @@ export async function GET(request: NextRequest) {
       hours: normalizeHours(pr.hours),
       gps: pr.gps_coordinates || null,
       booking_links: collectBookingLinks(pr),
-      menu: pr.menu
-        ? {
-            highlights: (pr.menu.highlights || []).map((h: any) => ({
-              title: h.title || "",
-              thumbnail: h.thumbnail || h.image || "",
-            })),
-            categories: (pr.menu.categories || []).map((c: any) => ({
-              title: c.title || "",
-              items: (c.items || []).map((it: any) => ({
-                title: it.title || "",
-                description: it.description || "",
-                price: it.price || "",
-              })),
-            })),
-          }
-        : null,
+      menu: normalizeMenu(pr.menu),
       extensions: normalizeExtensions(pr.extensions),
       images: (pr.images || [])
         .map((im: any) => ({ title: im.title || "", thumbnail: im.thumbnail || "" }))
@@ -183,7 +170,8 @@ export async function GET(request: NextRequest) {
       unclaimed: pr.unclaimed ?? null,
     };
 
-    return NextResponse.json({ profile, raw: data });
+    // Tham số upstream có thể chứa API key; chỉ trả dữ liệu địa điểm cần đối chiếu.
+    return NextResponse.json({ profile, raw: { place_results: pr } });
   } catch (error) {
     if (error instanceof SerpApiError) {
       return NextResponse.json({ error: error.userMessage }, { status: error.status });
