@@ -1,5 +1,28 @@
 # Kiểm thử Địa Bạ — 15/09/2026
 
+## Bản 2026-09-15.4 — ngôn ngữ chủ quán và suy luận có căn cứ
+
+- Theo phản hồi Anabas và yêu cầu không lộ thuật ngữ lập trình, chuyển hồ sơ/menu
+  từ JSON sang ghi chú tiếng Việt. Giá trị chưa có ở mọi cấp được diễn đạt bằng lời;
+  bảo toàn số 0, tên món, giá, mô tả nhiều dòng, nhóm món, nguồn ảnh và liên kết.
+- Viết lại system instruction gọn (2.198 ký tự), áp dụng cho báo cáo và chat:
+  không lộ null/undefined/tên trường; không coi thiếu tư liệu là quán thiếu;
+  không suy xu hướng từ một review, doanh thu/hiệu quả đặt bàn từ số sao hoặc link,
+  không hứa SEO/top đầu hay tự kết luận tiêu đề đa ngôn ngữ tối ưu/vi phạm.
+- Sáu mục Markdown có sẵn bốn gạch đầu dòng Text Menu: tên món, giá/khẩu phần,
+  mô tả, nhóm món. Yêu cầu ví dụ từ danh mục thật; ảnh/link chưa đọc thì cần đối chiếu,
+  không bảo quán phải tải lại menu. Khuyến nghị tối đa ba việc có căn cứ; điểm chuyên môn
+  giải thích phạm vi đánh giá hồ sơ. Biên tập phải thay cả lời kỹ thuật và suy diễn trong bản cũ.
+- **PASS:** 39 test Deno (thêm bốn ca tư liệu/biên tập), hai ca Next SSE/JSON với provider
+  giả lập, render/storage, Edge check, production build và diff check.
+- Đối chiếu ghi chú gửi model với dữ liệu thật **đã lưu** của ba mẫu: Bò Leo Thang
+  giữ đủ 84 món, An Bàng 24 món (tên/giá/mô tả/nhóm), East West giữ nguồn menu chưa có
+  danh mục chữ. Không gọi lại nguồn hồ sơ hoặc sinh report mới.
+- Vẫn một request ứng dụng/một request Gemini, không retry/reviewer/gate, không ép cache.
+  Header nhận diện prompt đổi thành 2026-09-15.4; chú tự push, agent không deploy.
+- **Chưa kiểm chứng nội dung Gemini thật với bản .4.** Kết quả ở trên xác nhận code,
+  dữ liệu và vận chuyển; không chứng minh model đã tuân thủ mọi quy tắc. Các phần dưới là lịch sử.
+
 ## Hotfix tiếp theo — địa giới và Text Menu còn sai trên báo cáo mới
 
 - Chú xác nhận lỗi xuất hiện khi **vừa tạo báo cáo mới qua `/api/ai-analysis`**;

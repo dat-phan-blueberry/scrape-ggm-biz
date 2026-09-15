@@ -99,12 +99,18 @@ trực tiếp trước mặt chủ quán khi tư vấn.
 - Prompt ngắn gửi bằng `systemInstruction`: tư vấn theo bằng chứng, địa giới sau sắp xếp 2025,
   Text Menu có ví dụ thực tế, điểm 0–10, sáu mục Markdown và phân biệt tư liệu với chỉ dẫn.
   Không có dữ liệu không đồng nghĩa quán thiếu; không tự bịa món, giá hoặc tác động SEO.
+- Tư liệu gửi AI là ghi chú kinh doanh tiếng Việt; giá trị chưa có được diễn đạt bằng lời,
+  giữ nguyên số 0 có nghĩa, tên/giá/mô tả/nhóm món. Không gửi cấu trúc JSON của hồ sơ.
+  Báo cáo và chat không dùng null/undefined, tên trường hay thuật ngữ lập trình.
+- Một phản ánh chưa chứng minh xu hướng phục vụ; liên kết chưa chứng minh đặt bàn hoạt động.
+  Không phóng đại thứ hạng/SEO, suy doanh thu từ số sao, hoặc tự quy tiêu đề đa ngôn ngữ là
+  tối ưu/vi phạm. Ưu tiên tối đa ba việc có căn cứ; việc chưa rõ phải đối chiếu với chủ quán.
 - Danh mục món được gửi riêng trước hồ sơ; mục “Đánh giá về Text Menu” phải nhận xét
   tên món, giá/khẩu phần, mô tả và nhóm món. Chat phải sửa nhận định sai trong bản trước.
 - Yêu cầu biên tập mới nhất được tách rõ sau báo cáo hiện tại và các yêu cầu trước.
   Không gửi lại lời xác nhận của model/UI làm căn cứ đã sửa. Giao diện báo nhận bản mới,
   không tự khẳng định đã thực hiện đúng yêu cầu chỉ vì nội dung hai bản khác nhau.
-- Response có `X-Audit-Prompt-Version: 2026-09-15.3` để đối chiếu bản prompt đã chạy;
+- Response có `X-Audit-Prompt-Version: 2026-09-15.4` để đối chiếu bản prompt đã chạy;
   đây là phiên bản prompt, không ép tạo lại báo cáo đã lưu.
 - Menu giữ chữ, ảnh, link và nguồn. Chưa đọc link/ảnh thì nêu giới hạn thu thập;
   không kết luận quán không có Text Menu hoặc tự trừ điểm vì vậy.
@@ -123,7 +129,7 @@ trực tiếp trước mặt chủ quán khi tư vấn.
 Kiểm tra cục bộ (không gọi Gemini thật):
 
 ```bash
-deno test --no-config --allow-env tests/audit.test.ts tests/hotfix.test.ts
+deno test --no-config --allow-env tests/audit.test.ts tests/hotfix.test.ts tests/audit-evidence.test.ts
 node tests/audit-ui.cjs
 node tests/audit-next.cjs
 deno check --no-config supabase/functions/ai-analysis/index.ts

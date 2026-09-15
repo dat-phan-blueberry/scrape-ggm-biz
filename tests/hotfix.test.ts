@@ -87,7 +87,7 @@ Deno.test("Hotfix: chat JSON/SSE nhận bản sửa khác tiêu đề, không đ
 Deno.test("Hotfix: prompt gọn, giữ quy tắc địa giới, Text Menu, điểm và chat", () => {
   const prompt = buildPrompt({ profile: {}, currentAnalysis: report, messages: [{ role: "user", content: "Rút ngắn" }] });
   equal(AUDIT_SYSTEM_INSTRUCTION.length < 2200, true);
-  for (const rule of ["Quảng Nam và Đà Nẵng", "Hội An/An Bàng hiện thuộc thành phố Đà Nẵng", "Text Menu", "0 đến 10", "Thiếu dữ liệu", "Tên món; Giá và khẩu phần; Mô tả món; Nhóm món"]) equal(AUDIT_SYSTEM_INSTRUCTION.includes(rule), true);
+  for (const rule of ["Quảng Nam và Đà Nẵng", "Hội An/An Bàng hiện thuộc thành phố Đà Nẵng", "Text Menu", "0 đến 10", "Thiếu dữ liệu", "**Tên món:**", "**Giá và khẩu phần:**", "**Mô tả món:**", "**Nhóm món:**"]) equal(AUDIT_SYSTEM_INSTRUCTION.includes(rule), true);
   equal(AUDIT_SYSTEM_INSTRUCTION.split("\n").filter(line => line.startsWith("## ")).length, 6);
   equal(prompt.includes("TOÀN BỘ báo cáo đã sửa"), true);
   equal(prompt.includes("Trả JSON"), false);

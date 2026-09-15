@@ -5,7 +5,7 @@ const { AUDIT_PROMPT_VERSION, AUDIT_SYSTEM_INSTRUCTION, CHAT_MARKER, REPORT_MARK
 const { readAiResponse } = require("../src/lib/ai-response.ts");
 
 // Kiểm tra request thật của route; phản hồi model giả lập, không đo chất lượng AI.
-const profile = { title: "Quán kiểm thử", address: "Hội An, Đà Nẵng", menu: { categories: [
+const profile = { title: "Quán kiểm thử", address: "Hội An, Đà Nẵng", description: null, price: null, similar_places: [{ title: "Quán bên cạnh", rating: null }], menu: { categories: [
   { title: "Món chính", items: [{ title: "Cao lầu", price: "65.000đ", description: "Mì, thịt và rau" }] },
   { title: "Đồ uống", items: [{ title: "Nước chanh", price: "30.000đ", description: "Chanh tươi" }] },
 ] } };
@@ -30,18 +30,15 @@ const originalKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
       const prompt = body.contents[0].parts[0].text;
       assert.ok(!prompt.includes(AUDIT_SYSTEM_INSTRUCTION));
       assert.ok(prompt.indexOf("<text_menu>") < prompt.indexOf("<ho_so>"));
-      const menu = JSON.parse(prompt.split("<text_menu>\n")[1].split("\n</text_menu>")[0]);
-      assert.equal(menu["Số món có tên"], 2);
-      assert.equal(menu["Số món có giá"], 2);
-      assert.equal(menu["Số món có mô tả"], 2);
-      assert.deepEqual(menu["Danh mục"], profile.menu.categories.map(c => ({
-        "Nhóm món": c.title, "Các món": c.items.map(i => ({ "Tên món": i.title, "Giá": i.price, "Mô tả": i.description })),
-      })));
+      const menu = prompt.split("<text_menu>\n")[1].split("\n</text_menu>")[0];
+      for (const line of ["Số món có tên: 2", "Số món có giá: 2", "Số món có mô tả: 2", "Nhóm món: Món chính", "Tên món: Cao lầu", "Giá: 65.000đ", "Mô tả: Mì, thịt và rau", "Nhóm món: Đồ uống", "Tên món: Nước chanh", "Giá: 30.000đ", "Mô tả: Chanh tươi"]) assert.ok(menu.includes(line));
+      assert.ok(!/\b(?:null|undefined)\b|\[object Object\]/.test(prompt));
+      assert.ok(prompt.includes("Giới thiệu của nhà hàng: Chưa ghi nhận"));
       assert.equal(prompt.includes(oldReport), chat);
       assert.ok(!body.systemInstruction.parts[0].text.includes(oldReport));
       if (chat) {
         assert.ok(prompt.includes(`YÊU CẦU HIỆN TẠI:\n${latestInstruction}`));
-        assert.ok(prompt.includes(JSON.stringify([firstInstruction])));
+        assert.ok(prompt.includes(`<yeu_cau_truoc>- ${firstInstruction}</yeu_cau_truoc>`));
         assert.ok(!prompt.includes(oldConfirmation));
         assert.ok(prompt.indexOf(latestInstruction) > prompt.indexOf(oldReport));
       }
