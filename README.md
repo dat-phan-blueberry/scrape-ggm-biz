@@ -65,9 +65,8 @@ Khi cả bốn key đều nghỉ, API trả 429 kèm câu nói rõ giờ hạn m
 3. **Thẩm định** — `POST /api/ai-analysis` gửi tư liệu có nhãn kinh doanh cho
    Gemini, trả báo cáo tiếng Việt dành cho chủ nhà hàng và đội sales. Prompt và
    kiểm tra kết quả dùng chung với Supabase Edge tại `supabase/functions/_shared/`.
-   Ưu tiên `gemini-3.5-flash`, dự phòng `gemini-3.6-flash` và `gemini-3.5-flash-lite`.
-   Model trả JSON theo schema; một lượt kiểm chứng riêng đối chiếu nhận định với tư liệu
-   trước khi hệ thống dựng báo cáo. Cả hai lượt dùng suy luận mức trung bình.
+   Mỗi thao tác gọi Gemini một lần, đầu ra Markdown theo prompt gọn. Không có lượt
+   kiểm chứng hoặc thử lại tự động; giữ contract SSE/JSON với frontend.
 4. **Xuất PDF** — nút "Xuất PDF" trên báo cáo mở cửa sổ xem trước A4 thương
    hiệu GoDine (logo ở `public/logo.png`, tiêu đề "Audit Google Business
    Profile Report") → bấm "In / Lưu PDF" → chọn *Save as PDF*. Trình dựng
@@ -94,62 +93,39 @@ trực tiếp trước mặt chủ quán khi tư vấn.
 
 ## Quy tắc thẩm định
 
-- Nhận định theo bằng chứng và bối cảnh từng quán; không dùng trọng số cứng,
-  không mặc định trừ điểm hay ưu tiên bán giải pháp khi chưa thu thập được menu.
-- Có mục **Đánh giá về Text Menu** riêng: tên món, giá, mô tả, nhóm món và khả năng
-  giúp khách lựa chọn. Phân biệt thiếu thông tin với xác nhận nhà hàng chưa có.
-  Không khẳng định Google không đọc được chữ trong ảnh; xem
-  [hướng dẫn menu của Google](https://support.google.com/business/answer/9455840?hl=en).
-- `audit-format.ts` bắt buộc nội dung từng tiêu chí menu, giải thích điểm và sáu mục
-  báo cáo. Không chấp nhận chỉ có tiêu đề Text Menu. Bộ kiểm tra đối chiếu dữ liệu
-  đầu vào để từ chối một số dạng kết luận “quán thiếu menu/giới thiệu” khi chỉ chưa thu thập.
-- Menu giữ riêng danh sách món, món nổi bật, ảnh menu, link và tên nguồn.
-  UI luôn hiện tình trạng thu thập, kể cả khi không có món dạng chữ. Không tự đọc
-  nội dung link/ảnh hoặc biến tên món nổi bật thành danh sách thực đơn đầy đủ.
-- Điểm từ **0 đến 10**, tối đa một chữ số thập phân, bắt buộc tiêu đề
-  `## Điểm cạnh tranh: X/10`. Sai điểm, thiếu mục hoặc kết quả bị cắt sẽ gọi lại;
-  tối đa 3 bản nháp trong ngân sách 110 giây. Không chia điểm thang 100, làm tròn
-  hay cắt về 10 để hợp thức hóa kết quả sai.
-- Mỗi bản nháp hợp lệ về cấu trúc cần thêm một lượt kiểm chứng, nên **3 bản nháp không
-  đồng nghĩa 3 yêu cầu Gemini**. Kiểm chứng dùng cùng model nhưng ngữ cảnh riêng;
-  schema/guard kiểm tra giá, nguồn nhận xét, suy diễn địa chỉ và tình trạng menu.
-  Chỉ nhận lỗi kiểm chứng có câu trích đúng trong report; kiểm chứng lỗi thì chưa trả report.
-- Thời gian chờ mỗi lượt tối đa 35 giây trong ngân sách tổng 110 giây. Retry nội dung
-  gửi lại cả bản bị từ chối và lý do sửa; 429/5xx có khoảng nghỉ. Hết quota theo ngày
-  bỏ retry cùng model và thử dự phòng; vẫn không có kết quả thì trả lỗi rõ ràng.
-  Phân biệt RPM/RPD bằng định danh quota thực tế; số 20 hoặc HTTP 429 riêng lẻ không
-  đủ kết luận hạn mức chung. Xem [hạn mức Gemini](https://ai.google.dev/gemini-api/docs/rate-limits).
-  Next khai báo `maxDuration=120`; khi phát hành cần kiểm tra chế độ chạy của dự án
-  cho phép thời lượng này theo [giới hạn Vercel](https://vercel.com/docs/functions/limitations).
-- Chỉ gửi nội dung sau khi kiểm tra xong; trong khi chờ gửi SSE keepalive.
-  Lần đầu dùng SSE ở cả hai môi trường; chat dùng JSON ở Next và SSE ở Edge,
-  giao diện đọc được cả hai. Hết lượt thử thì báo lỗi, giữ báo cáo cũ khi sửa qua chat.
-- Bộ đọc ở giao diện dùng chung cho thẩm định và chat: xử lý UTF-8 chia nhỏ,
-  sự kiện nhiều dòng và phần còn lại ở cuối luồng; chỉ hoàn tất khi nhận `[DONE]`.
-  Đọc được text delta, snapshot `analysis`/`updatedAnalysis`, JSON và report thuần
-  từ Edge cũ; bản cập nhật rõ ràng được ưu tiên. Client cũng kiểm tra sáu mục,
-  nội dung menu và điểm hợp lệ. Nếu endpoint trả nội dung sai, giao diện thử lại một lần; nếu vẫn lỗi thì
-  giữ nội dung đã nhận để xem, nhưng không lưu làm báo cáo hoàn tất hoặc cho xuất PDF.
-  Lỗi kết nối, lỗi dịch vụ và lỗi nội dung có thông báo riêng.
-- Địa chỉ cụ thể chưa có nguồn đối chiếu, nên không đưa địa chỉ thô vào tư liệu AI
-  và không tự chuẩn hóa. Prompt có bối cảnh hợp nhất Quảng Nam–Đà Nẵng từ
-  [Nghị quyết 202/2025/QH15](https://chinhphu.vn/?docid=213930&pageid=27160).
-  Guard chặn nhận định lỗi địa chỉ/địa giới thiếu căn cứ, vẫn cho phép địa danh
-  trong tên quán/món. Guard này không phải dịch vụ xác minh mọi nhận định của AI.
-- Khi chat sửa, UI hiện bản đang nhận, chỉ lưu sau hoàn tất và kiểm tra nội dung;
-  stream lỗi giữ bản trước. “Đã cập nhật”, “Đã giải đáp”, lỗi là ba trạng thái riêng.
-  Xuất PDF bị khóa trong lúc sửa và dùng cùng bản hoàn tất với UI/bộ nhớ.
-- Hủy request khi đổi quán/đặt lại để phản hồi muộn không ghi đè nhầm hồ sơ.
-  Bộ nhớ có phiên bản; bản cũ còn xem được với nút **Thẩm định lại**, chưa cho xuất PDF.
-  Nếu trình duyệt không lưu được, UI nói rõ thay vì báo lưu thành công.
-- API dữ liệu gốc chỉ trả `place_results`, loại tham số truy vấn có thể chứa key;
-  lỗi upstream không ghi raw response/request có thông tin xác thực ra log.
+- Mỗi lần bấm phân tích hoặc gửi chat: **một request ứng dụng, một request Gemini**.
+  Dùng `gemini-3.5-flash`, suy luận thấp, tối đa 55 giây; Next maxDuration60.
+  Không reviewer, schema đầu ra, tự retry hoặc đổi model dự phòng.
+- Prompt ngắn gửi bằng `systemInstruction`: tư vấn theo bằng chứng, địa giới sau sắp xếp 2025,
+  Text Menu có ví dụ thực tế, điểm 0–10, sáu mục Markdown và phân biệt tư liệu với chỉ dẫn.
+  Không có dữ liệu không đồng nghĩa quán thiếu; không tự bịa món, giá hoặc tác động SEO.
+- Danh mục món được gửi riêng trước hồ sơ; mục “Đánh giá về Text Menu” phải nhận xét
+  tên món, giá/khẩu phần, mô tả và nhóm món. Chat phải sửa nhận định sai trong bản trước.
+- Yêu cầu biên tập mới nhất được tách rõ sau báo cáo hiện tại và các yêu cầu trước.
+  Không gửi lại lời xác nhận của model/UI làm căn cứ đã sửa. Giao diện báo nhận bản mới,
+  không tự khẳng định đã thực hiện đúng yêu cầu chỉ vì nội dung hai bản khác nhau.
+- Response có `X-Audit-Prompt-Version: 2026-09-15.3` để đối chiếu bản prompt đã chạy;
+  đây là phiên bản prompt, không ép tạo lại báo cáo đã lưu.
+- Menu giữ chữ, ảnh, link và nguồn. Chưa đọc link/ảnh thì nêu giới hạn thu thập;
+  không kết luận quán không có Text Menu hoặc tự trừ điểm vì vậy.
+- UI không đánh giá lại report bằng regex tiêu đề/giá/menu. Khi API hoàn tất và có
+  nội dung, hiển thị/lưu bản nhận được. Report khác tiêu đề không gây request thứ hai,
+  lỗi “thiếu mục Text Menu” hoặc ép phân tích lại bộ nhớ đã lưu.
+- Vẫn báo lỗi HTTP, response rỗng, model bị ngắt hoặc SSE thiếu DONE; không biến
+  gián đoạn thật thành thành công. Thử lại do người dùng chọn.
+- Chat nhận JSON ở Next hoặc SSE ở Edge; ưu tiên updatedAnalysis, cập nhật cùng một
+  report trên UI, lịch sử, bộ nhớ và HTML in. Lỗi giữ bản trước; hủy khi đổi quán.
+- Điểm được nhận diện để hiển thị, không chia100/clamp để sửa sai; không nhận diện
+  được thì ẩn badge, không tự gọi lại model. Nội dung report không bị thay bằng lỗi biên tập.
+- Dữ liệu nguồn chỉ trả place_results, không trả tham số truy vấn chứa key.
+  Các helper đánh giá nội dung cũ còn được kiểm tra offline, không nằm trong luồng runtime.
 
 Kiểm tra cục bộ (không gọi Gemini thật):
 
 ```bash
-deno test --no-config --allow-env tests/audit.test.ts
+deno test --no-config --allow-env tests/audit.test.ts tests/hotfix.test.ts
 node tests/audit-ui.cjs
+node tests/audit-next.cjs
 deno check --no-config supabase/functions/ai-analysis/index.ts
 npm run build
 ```
@@ -170,9 +146,8 @@ Không xem kết quả của tám quán ngoài phạm vi này là đã nghiệm 
 
 Chỉ khi được phép chạy live ở phiên khác: app tại `127.0.0.1:3107`,
 `node tests/live-e2e.cjs --live --resume`. Runner chỉ chạy ba mẫu, dừng khi một mẫu lỗi,
-không retry thêm bên ngoài retry của service. Chạy không tham số sẽ không gọi API.
-Mỗi mẫu tối đa hai yêu cầu ứng dụng (tạo/sửa), mỗi yêu cầu gồm writer/reviewer và
-retry có giới hạn nên số yêu cầu Gemini lớn hơn. `--discover` chỉ thu thập hồ sơ
+không tự retry ở runner hoặc service. Chạy không tham số sẽ không gọi API.
+Mỗi mẫu tối đa hai yêu cầu ứng dụng (tạo/sửa), mỗi yêu cầu gọi Gemini đúng một lần. `--discover` chỉ thu thập hồ sơ
 qua SerpAPI khi cần; không tự sinh báo cáo. **Phiên 15/09 đã dừng mọi lượt Gemini theo yêu cầu.**
 
 `node tests/browser-server.cjs` mở máy chủ QA loopback `127.0.0.1:3109`, dùng UI thật

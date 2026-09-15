@@ -1,6 +1,59 @@
 # Kiểm thử Địa Bạ — 15/09/2026
 
-## Kết quả và phạm vi được chốt
+## Hotfix tiếp theo — địa giới và Text Menu còn sai trên báo cáo mới
+
+- Chú xác nhận lỗi xuất hiện khi **vừa tạo báo cáo mới qua `/api/ai-analysis`**;
+  không phải mở cache hoặc gọi Edge riêng. Chưa có raw response/header của production
+  để xác định chính xác bản prompt đã chạy.
+- Quy tắc trước nằm chung trong user message. Nay gửi riêng `systemInstruction`
+  theo [Gemini generateContent](https://ai.google.dev/api/generate-content), nêu rõ
+  Hội An/An Bàng hiện thuộc thành phố Đà Nẵng theo
+  [Nghị quyết 202/2025/QH15](https://chinhphu.vn/?docid=213930&pageid=27160).
+- Sáu tiêu đề đặt thành sáu dòng; mục Text Menu yêu cầu tên món, giá/khẩu phần,
+  mô tả, nhóm món và ví dụ từ danh mục. Danh mục được gửi trước hồ sơ. Chat phải
+  sửa nhận định sai của bản trước. Vẫn một lượt gọi, không thêm retry/reviewer/gate.
+- Phản hồi tiếp theo của chú cho thấy chat hai lần đính chính vẫn giữ lời phán sai.
+  Tìm thấy câu “Đã cập nhật báo cáo theo yêu cầu…” do UI tự thêm khi hai bản khác nhau;
+  câu này còn bị đưa trở lại lịch sử model. Đã thay thông báo bằng xác nhận nhận bản mới,
+  loại lời xác nhận model khỏi prompt, chỉ giữ các yêu cầu người dùng và báo cáo hiện tại;
+  yêu cầu mới nhất đứng riêng cuối tư liệu. Prompt yêu cầu thay câu sai ở mọi mục liên quan,
+  không chỉ thêm ghi chú/lời xác nhận. Test Next dùng đúng hai câu chú đã gửi để kiểm payload.
+- Nguồn An Bàng đã lưu có 24 món chữ, 23 giá, 24 mô tả, 5 nhóm; dữ liệu không bị
+  loại khỏi prompt. Không dùng kết quả này để suy rằng Gemini đã phân tích đúng.
+- **Đã chạy PASS:** 35 test Deno; `node tests/audit-next.cjs` gồm hai ca Next
+  initial SSE/chat JSON kiểm request gửi đủ dữ liệu/menu, system instruction,
+  header phiên bản, một provider call và client nhận bản mới; render/storage,
+  Edge type check, production build và diff check.
+- Response Next/Edge thành công có `X-Audit-Prompt-Version: 2026-09-15.3`.
+  Không thay đổi phiên bản cache hoặc ép tạo lại report.
+- **Giới hạn:** provider trong test được giả lập; không gọi Gemini/SerpAPI,
+  không chạy lại browser E2E ở lượt này. Chưa chứng minh chất lượng model thật
+  với prompt mới. Chú tự push; agent không deploy.
+
+## Hotfix sau phản hồi production — một lần bấm, một lượt gọi
+
+**Thay thiết kế kiểm chứng/retry mô tả bên dưới.** Người dùng yêu cầu prompt tối giản,
+bỏ tự chạy lần hai và lỗi biên tập sau khi hoàn tất. Chỉ sửa tại repo; chú tự push,
+agent không deploy.
+
+- Client bỏ vòng lặp hai lần và semantic validation; server bỏ reviewer/schema/retry/fallback.
+- Prompt sáu quy tắc cứng, đầu ra Markdown; Gemini3.5 Flash/low, timeout55s, Next60s.
+- Cache không còn yêu cầu đúng tiêu đề Text Menu/điểm hoặc ép thẩm định lại phiên bản cũ.
+- HTTP lỗi, response rỗng, model bị ngắt và SSE thiếu DONE vẫn là lỗi thật, không tự retry.
+- **35 test PASS**: 29 test tiện ích/vận chuyển còn áp dụng và 6 test hotfix mới.
+  Thay các test yêu cầu retry cũ bằng assert đúng một request ở client và provider,
+  kể cả429/503/403; không dùng test để giữ cơ chế đã bị người dùng bác.
+- Render/storage, Deno Edge check, production build gồm TypeScript đều PASS.
+- Browser chạy bản build với một fixture có tiêu đề “Thực đơn dạng chữ”:
+  một lần bấm → đúng một request, không lỗi thiếu Text Menu/Chưa hoàn tất, xuất hiện
+  report hoàn tất; mở lại hồ sơ khôi phục nguyên bản, không phát sinh thêm request.
+  Bằng chứng: tests/results/hotfix-ui.json. Máy chủ kiểm thử đã dừng.
+- **Không gọi Gemini hoặc SerpAPI thật trong hotfix.** Các mẫu AI thật dưới đây
+  thuộc lần kiểm chứng trước; không dùng để bảo đảm văn phong của prompt mới.
+- Test: `deno test --no-config --allow-env tests/audit.test.ts tests/hotfix.test.ts`.
+  Khi kiểm UI bằng dữ liệu phát lại: `node tests/browser-server.cjs --hotfix`.
+
+## Kết quả trước hotfix — lịch sử
 
 **3/3 mẫu E2E thật đạt; 47 kiểm thử hồi quy, render/bộ nhớ, Deno Edge check và Next production build đạt.**
 

@@ -24,10 +24,10 @@ const refining = render({ status: "done", analysis: "Bản trước" }, { isRefi
 assert.ok(refining.includes("Bản mới đang nhận"));
 assert.ok(!refining.includes("Bản trước"));
 assert.ok(/disabled=""[^>]*>[^<]*<svg[\s\S]*Xuất PDF/.test(refining));
-for (const [outcome, label] of [["updated", "Đã cập nhật báo cáo"], ["answered", "Đã giải đáp — giữ nguyên báo cáo"], ["error", "Chưa cập nhật — giữ bản trước"]]) {
+for (const [outcome, label] of [["updated", "Đã nhận bản chỉnh sửa"], ["answered", "Giữ nguyên báo cáo"], ["error", "Chưa cập nhật — giữ bản trước"]]) {
   const html = render({ status: "done", analysis: "Bản trước" }, { chatMessages: [{ id: outcome, role: "model", content: "Phản hồi thử", outcome }] });
   assert.ok(html.includes(label));
-  if (outcome !== "updated") assert.ok(!html.includes("Đã cập nhật báo cáo"));
+  if (outcome !== "updated") assert.ok(!html.includes("Đã nhận bản chỉnh sửa"));
 }
 const completedWithoutMenuHeading = render({ status: "done", analysis: "## Thực đơn\nTên món và giá đã được phân tích." });
 assert.ok(!completedWithoutMenuHeading.includes("Chưa hoàn tất thẩm định"));

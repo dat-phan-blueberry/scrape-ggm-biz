@@ -308,14 +308,14 @@ export default function HomePage() {
         const validationError = completedRefinementError(data, { profile, currentAnalysis: ai.analysis, messages: updatedMessages });
         if (validationError) throw new AiResponseError(validationError, "validation");
         const targetReport = data.analysis.trim();
-        const changed = targetReport !== ai.analysis;
+        const changed = targetReport !== ai.analysis.trim();
         setAi({ status: "done", analysis: targetReport });
 
         const botResponse =
           data.reply?.trim() ||
           (changed
-            ? `Đã cập nhật báo cáo theo yêu cầu: "${instruction}"`
-            : "Đã giải đáp; báo cáo được giữ nguyên.");
+            ? "Đã nhận bản báo cáo mới."
+            : "Báo cáo chưa thay đổi.");
 
         const modelMsg: ChatMessage = {
           id: `model-${Date.now()}`,

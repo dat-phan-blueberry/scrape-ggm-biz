@@ -1,4 +1,4 @@
-import { businessBrief, buildPrompt, cleanBusinessReportText, parseAndValidateScore, reportValidationError, responseValidationError, splitRefinement, evidenceValidationError } from "../supabase/functions/_shared/audit.ts";
+import { AUDIT_SYSTEM_INSTRUCTION, businessBrief, buildPrompt, cleanBusinessReportText, parseAndValidateScore, reportValidationError, responseValidationError, splitRefinement, evidenceValidationError } from "../supabase/functions/_shared/audit.ts";
 import { AuditError, auditEventStream, generateAudit, quotaPeriod } from "../supabase/functions/_shared/audit-service.ts";
 import { AiResponseError, completedReportError, completedRefinementError, readAiResponse, requestAiAudit } from "../src/lib/ai-response.ts";
 import { decodeAuditOutput } from "../supabase/functions/_shared/audit-format.ts";
@@ -48,7 +48,7 @@ Deno.test("Tư liệu dùng nhãn kinh doanh, loại địa chỉ thô và đị
 });
 Deno.test("Thiếu menu khác với khẳng định không có; không ép ưu tiên menu", () => {
   equal(JSON.stringify(businessBrief({})).includes("Chưa ghi nhận trong thông tin thu thập"), true);
-  equal(buildPrompt({ profile: {} }).includes("không mặc định trừ điểm"), true);
+  equal(AUDIT_SYSTEM_INSTRUCTION.includes("không mặc định trừ điểm"), true);
   equal(cleanBusinessReportText("has_text_menu: true"), "has_text_menu: true");
 });
 Deno.test("Báo cáo thiếu Text Menu, mã kỹ thuật hoặc điểm sai không được nhận", () => {

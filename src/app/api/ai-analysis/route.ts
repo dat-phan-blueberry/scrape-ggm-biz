@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getAiApiKey } from "@/lib/ai-config";
-import { splitRefinement } from "../../../../supabase/functions/_shared/audit";
+import { AUDIT_PROMPT_VERSION, splitRefinement } from "../../../../supabase/functions/_shared/audit";
 import { AuditError, auditEventStream, generateAudit, parseAuditInput } from "../../../../supabase/functions/_shared/audit-service";
 
 export const runtime = "nodejs";
@@ -14,13 +14,13 @@ export async function POST(request: NextRequest) {
   if (!input) return NextResponse.json({ error: "Dữ liệu hồ sơ hoặc trao đổi không hợp lệ." }, { status: 400 });
   if (!input.messages?.length) {
     return new Response(auditEventStream(apiKey, input, request.signal), {
-      headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no" },
+      headers: { "Content-Type": "text/event-stream; charset=utf-8", "Cache-Control": "no-cache, no-transform", "X-Accel-Buffering": "no", "X-Audit-Prompt-Version": AUDIT_PROMPT_VERSION },
     });
   }
   try {
     const text = await generateAudit(apiKey, input, request.signal);
     const result = splitRefinement(text) ?? { reply: "", updatedAnalysis: text };
-    return NextResponse.json({ ...result, analysis: result.updatedAnalysis ?? input.currentAnalysis });
+    return NextResponse.json({ ...result, analysis: result.updatedAnalysis ?? input.currentAnalysis }, { headers: { "X-Audit-Prompt-Version": AUDIT_PROMPT_VERSION } });
   } catch (error) {
     return NextResponse.json({ error: error instanceof AuditError ? error.message : "Không thể hoàn thành phân tích.",
       ...(error instanceof AuditError ? { retryAfterSeconds: error.retryAfterSeconds } : {}) },

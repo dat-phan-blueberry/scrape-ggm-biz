@@ -859,7 +859,7 @@ export function AiAuditSection({
                           <div className="space-y-1">
                             <p className={`flex items-center gap-1 font-mono text-[0.7rem] font-semibold ${m.outcome === "error" ? "text-pin" : "text-moss-deep"}`}>
                               {m.outcome === "updated" && <IconCheck className="h-3 w-3" />}
-                              {m.outcome === "updated" ? "Đã cập nhật báo cáo" : m.outcome === "error" ? "Chưa cập nhật — giữ bản trước" : m.outcome === "answered" ? "Đã giải đáp — giữ nguyên báo cáo" : "Phản hồi"}
+                              {m.outcome === "updated" ? "Đã nhận bản chỉnh sửa" : m.outcome === "error" ? "Chưa cập nhật — giữ bản trước" : m.outcome === "answered" ? "Giữ nguyên báo cáo" : "Phản hồi"}
                             </p>
                             <p className="text-[0.78rem] text-ink/85">{m.content}</p>
                           </div>

@@ -1,4 +1,4 @@
-import { buildPrompt, cleanBusinessReportText, type AuditInput } from "./audit.ts";
+import { AUDIT_SYSTEM_INSTRUCTION, buildPrompt, cleanBusinessReportText, type AuditInput } from "./audit.ts";
 
 const MODEL = "gemini-3.5-flash";
 export class AuditError extends Error {
@@ -25,6 +25,7 @@ export async function generateAudit(apiKey: string, input: AuditInput, signal?: 
       headers: { "Content-Type": "application/json", "x-goog-api-key": apiKey },
       signal: signal ? AbortSignal.any([signal, timeout]) : timeout,
       body: JSON.stringify({
+        systemInstruction: { parts: [{ text: AUDIT_SYSTEM_INSTRUCTION }] },
         contents: [{ role: "user", parts: [{ text: buildPrompt(input) }] }],
         generationConfig: { temperature: 0.35, maxOutputTokens: 8192, thinkingConfig: { thinkingLevel: "low" } },
       }),
