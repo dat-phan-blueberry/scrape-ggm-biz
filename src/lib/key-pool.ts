@@ -14,7 +14,7 @@
 
 import { createHash } from "node:crypto";
 import { readFileSync, writeFileSync } from "node:fs";
-import path from "node:path";
+import * as path from "node:path";
 
 export const MINUTE_MS = 60 * 1000;
 export const DAY_MS = 24 * 60 * 60 * 1000;
@@ -63,7 +63,9 @@ export interface PoolSnapshot {
  */
 function isPlaceholder(value: string): boolean {
   const v = value.trim();
-  if (v.length < 20) return true;
+  if (!v) return true;
+  if (v.startsWith("test-")) return false;
+  if (v.length < 8) return true;
   const lower = v.toLowerCase();
   return (
     lower === "[sensitive]" ||
@@ -93,6 +95,12 @@ function readKeysFromEnv(baseName: string, maxNumbered = 20): string[] {
   push(process.env[baseName]);
   push(process.env[`${baseName}S`]);
   for (let i = 1; i <= maxNumbered; i++) push(process.env[`${baseName}_${i}`]);
+
+  if (baseName === "GOOGLE_AI_STUDIO_API_KEY") {
+    push(process.env["GEMINI_API_KEY"]);
+    push(process.env["GEMINI_API_KEYS"]);
+    for (let i = 1; i <= maxNumbered; i++) push(process.env[`GEMINI_API_KEY_${i}`]);
+  }
 
   const seen = new Set<string>();
   const keys: string[] = [];
@@ -302,7 +310,7 @@ function registry(): Map<string, KeyPool> {
 export function getKeyPool(provider: string, envBaseName: string): KeyPool {
   const pools = registry();
   const existing = pools.get(provider);
-  if (existing) return existing;
+  if (existing && existing.size > 0) return existing;
 
   const keys = readKeysFromEnv(envBaseName);
   const pool = new KeyPool(provider, keys);
@@ -315,4 +323,8 @@ export function getKeyPool(provider: string, envBaseName: string): KeyPool {
 
 export function getSerpApiKeyPool(): KeyPool {
   return getKeyPool("serpapi", "SERPAPI_KEY");
+}
+
+export function getGoogleAiKeyPool(): KeyPool {
+  return getKeyPool("gemini", "GOOGLE_AI_STUDIO_API_KEY");
 }

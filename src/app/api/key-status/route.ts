@@ -1,5 +1,5 @@
 import { NextResponse } from "next/server";
-import { getSerpApiKeyPool } from "@/lib/key-pool";
+import { getSerpApiKeyPool, getGoogleAiKeyPool } from "@/lib/key-pool";
 
 /**
  * Soi tình trạng pool key: còn mấy key dùng được, key nào đang nghỉ vì lý do gì
@@ -12,8 +12,9 @@ export const dynamic = "force-dynamic";
 
 export async function GET() {
   const serpapi = getSerpApiKeyPool();
+  const gemini = getGoogleAiKeyPool();
   return NextResponse.json({
     checkedAt: new Date().toISOString(),
-    pools: [serpapi.snapshot()],
+    pools: [serpapi.snapshot(), gemini.snapshot()],
   });
 }

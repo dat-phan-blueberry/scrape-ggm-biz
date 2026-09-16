@@ -63,6 +63,31 @@ const originalEndpoint = process.env.NEXT_PUBLIC_AI_ANALYSIS_URL;
     assert.equal(calls, 1);
     console.log(`PASS Next ${chat ? "chat JSON" : "initial SSE"}: system instruction, full menu payload, prompt version, one provider call, updated report.`);
   }
+
+  // Kiểm tra xoay key khi 429
+  {
+    delete globalThis.__diaBaKeyPools__;
+    process.env.GOOGLE_AI_STUDIO_API_KEY = "test-key-1,test-key-2";
+    const attempts = [];
+    globalThis.fetch = async (url, options) => {
+      const keyUsed = options.headers["x-goog-api-key"];
+      attempts.push(keyUsed);
+      if (keyUsed === "test-key-1") {
+        return Response.json({ error: { message: "Quota exceeded" } }, { status: 429 });
+      }
+      return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: newReport }] } }] });
+    };
+
+    const response = await POST(new Request("http://local.test/api/ai-analysis", {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ profile }),
+    }));
+    assert.equal(response.status, 200);
+    const result = await readAiResponse(response);
+    assert.equal(result.analysis, newReport);
+    assert.deepEqual(attempts, ["test-key-1", "test-key-2"]);
+    console.log("PASS Key rotation: key 1 bị 429 tự động chuyển sang key 2 thành công.");
+  }
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {
   globalThis.fetch = originalFetch;
   if (originalKey === undefined) delete process.env.GOOGLE_AI_STUDIO_API_KEY;

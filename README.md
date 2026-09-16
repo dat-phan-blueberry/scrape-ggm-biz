@@ -19,20 +19,23 @@ SERPAPI_KEY=...              # https://serpapi.com — lấy dữ liệu Google 
 GOOGLE_AI_STUDIO_API_KEY=... # https://aistudio.google.com — chạy thẩm định AI
 ```
 
-### Nhiều key SerpAPI (xoay key tự động)
+### Nhiều key SerpAPI & Google AI Studio (xoay key tự động khi 429)
 
-Free tier SerpAPI chỉ 100 lượt/tháng, nên `SERPAPI_KEY` nhận **nhiều key**. Hai
-cách khai, chọn cái nào cũng được:
+Cả `SERPAPI_KEY` và `GOOGLE_AI_STUDIO_API_KEY` đều hỗ trợ nhiều key với 2 cách khai báo:
 
 ```env
-# cách 1 — một biến, phân cách bằng phẩy
+# cách 1 — một biến, phân cách bằng dấu phẩy
 SERPAPI_KEY=key_1,key_2,key_3,key_4
+GOOGLE_AI_STUDIO_API_KEY=ai_key_1,ai_key_2,ai_key_3
 
-# cách 2 — mỗi key một biến
+# cách 2 — mỗi key một biến (hỗ trợ _1 .. _20)
 SERPAPI_KEY=key_1
 SERPAPI_KEY_2=key_2
 SERPAPI_KEY_3=key_3
-SERPAPI_KEY_4=key_4
+
+GOOGLE_AI_STUDIO_API_KEY=ai_key_1
+GOOGLE_AI_STUDIO_API_KEY_2=ai_key_2
+GOOGLE_AI_STUDIO_API_KEY_3=ai_key_3
 ```
 
 Cách xoay (`src/lib/key-pool.ts`):
@@ -95,7 +98,7 @@ trực tiếp trước mặt chủ quán khi tư vấn.
 ## Quy tắc thẩm định
 
 - Mỗi lần bấm phân tích hoặc gửi chat: **một request ứng dụng, một request Gemini**.
-  Dùng `gemini-3.5-flash`, suy luận thấp, tối đa 55 giây; Next maxDuration60.
+  Dùng `gemini-flash-latest`, suy luận thấp, tối đa 55 giây; Next maxDuration60.
   Không reviewer, schema đầu ra, tự retry hoặc đổi model dự phòng.
 - Prompt ngắn gửi bằng `systemInstruction`: tư vấn theo bằng chứng, địa giới sau sắp xếp 2025,
   Text Menu có ví dụ thực tế, điểm 0–10, sáu mục Markdown và phân biệt tư liệu với chỉ dẫn.
