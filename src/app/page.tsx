@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useRef, useState } from "react";
-import { AiResponseError, completedRefinementError, readAiResponse, requestAiAudit, refinementPreview } from "@/lib/ai-response";
+import { AiResponseError, completedRefinementError, requestAiAudit, requestAiRefinement, refinementPreview } from "@/lib/ai-response";
 import { getAiEndpoint } from "@/lib/ai-config";
 import {
   type BusinessProfile,
@@ -287,23 +287,16 @@ export default function HomePage() {
       const endpoint = getAiEndpoint();
 
       try {
-        const res = await fetch(endpoint, {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          signal: controller.signal,
-          body: JSON.stringify({
-            profile,
-            currentAnalysis: ai.analysis,
-            messages: updatedMessages.filter(m => m.outcome !== "error").map((m) => ({
-              role: m.role,
-              content: m.content,
-            })),
-          }),
-        });
-
-        const data = await readAiResponse(res, ai.analysis, text => {
+        const data = await requestAiRefinement(endpoint, {
+          profile,
+          currentAnalysis: ai.analysis,
+          messages: updatedMessages.filter(m => m.outcome !== "error").map((m) => ({
+            role: m.role,
+            content: m.content,
+          })),
+        }, text => {
           if (!controller.signal.aborted) setRefinementDraft(refinementPreview(text));
-        });
+        }, controller.signal);
         if (controller.signal.aborted) return;
         const validationError = completedRefinementError(data, { profile, currentAnalysis: ai.analysis, messages: updatedMessages });
         if (validationError) throw new AiResponseError(validationError, "validation");

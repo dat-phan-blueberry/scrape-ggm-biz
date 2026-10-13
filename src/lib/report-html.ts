@@ -314,7 +314,7 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
       </div>
       ${
         validatedScore
-          ? `<div class="score-pill"><div class="num">${escapeHtml(validatedScore)}<span style="font-size:9pt">/10</span></div><div class="cap">cạnh tranh</div></div>`
+          ? `<div class="score-pill"><div class="num">${escapeHtml(validatedScore)}<span style="font-size:9pt">/100</span></div><div class="cap">sức khỏe GBP</div></div>`
           : ""
       }
     </header>

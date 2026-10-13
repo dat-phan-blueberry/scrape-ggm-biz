@@ -8,6 +8,11 @@ function equal(actual: unknown, expected: unknown) {
 }
 const report = "## Tổng quan\nQuán có thông tin để khách cân nhắc.\n## Thực đơn dạng chữ\nChưa thu thập danh sách món, cần xem menu trước khi nhận định.\n## Điểm cạnh tranh: 7.5/10";
 const generated = (text = report, finishReason = "STOP") => Response.json({ candidates: [{ finishReason, content: { parts: [{ text }] } }] });
+const streamed = (text = report) => new Response(
+  `data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: text.slice(0, 20) }] } }] })}\n\n`
+    + `data: ${JSON.stringify({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: text.slice(20) }] } }] })}\n\n`,
+  { headers: { "Content-Type": "text/event-stream" } },
+);
 
 Deno.test("Hotfix: một thao tác UI → Edge → Gemini, nhận report khác tiêu đề mà không gọi lần hai", async () => {
   const original = globalThis.fetch, key = Deno.env.get("GOOGLE_AI_STUDIO_API_KEY");
@@ -20,14 +25,14 @@ Deno.test("Hotfix: một thao tác UI → Edge → Gemini, nhận report khác t
       equal(response.headers.get("X-Audit-Prompt-Version"), AUDIT_PROMPT_VERSION);
       return response;
     }
-    if (!String(url).startsWith("https://generativelanguage.googleapis.com/")) throw new Error("Unexpected network call");
+    equal(String(url), "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse");
     modelCalls++;
     const body = JSON.parse(String(options?.body));
     equal(body.generationConfig.responseSchema, undefined);
     equal(body.systemInstruction, { parts: [{ text: AUDIT_SYSTEM_INSTRUCTION }] });
     equal(body.contents.length, 1);
     equal(body.contents[0].parts[0].text.includes(AUDIT_SYSTEM_INSTRUCTION), false);
-    return generated();
+    return streamed();
   };
   try {
     equal(await requestAiAudit("http://local.test/audit", { profile: {} }), report);
@@ -36,6 +41,33 @@ Deno.test("Hotfix: một thao tác UI → Edge → Gemini, nhận report khác t
     globalThis.fetch = original;
     if (key === undefined) Deno.env.delete("GOOGLE_AI_STUDIO_API_KEY"); else Deno.env.set("GOOGLE_AI_STUDIO_API_KEY", key);
   }
+});
+
+Deno.test("503 từ Gemini dừng ở key hiện tại, giữ thời gian chờ và không phạt key", async () => {
+  const original = globalThis.fetch;
+  const attempts: string[] = [];
+  const penalties: string[] = [];
+  const keys = ["test-key-1", "test-key-2"];
+  let next = 0;
+  globalThis.fetch = (_url, options) => {
+    attempts.push(String((options?.headers as Record<string, string>)["x-goog-api-key"]));
+    return Promise.resolve(Response.json({ error: { message: "Unavailable" } }, { status: 503, headers: { "Retry-After": "20" } }));
+  };
+  try {
+    let error: unknown;
+    try {
+      await generateAudit({
+        size: keys.length,
+        acquire: () => next < keys.length ? { key: keys[next++], slot: next - 1 } : null,
+        penalize: (_lease, reason) => penalties.push(reason),
+      }, { profile: {} });
+    } catch (caught) { error = caught; }
+    equal(error instanceof AuditError, true);
+    equal((error as AuditError).status, 503);
+    equal((error as AuditError).retryAfterSeconds, 20);
+    equal(attempts, ["test-key-1"]);
+    equal(penalties, []);
+  } finally { globalThis.fetch = original; }
 });
 
 Deno.test("Hotfix: 429/503/403 không retry, fallback hoặc gọi reviewer", async () => {

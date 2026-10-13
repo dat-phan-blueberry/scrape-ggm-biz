@@ -1,5 +1,32 @@
 # Kiểm thử Địa Bạ — 15/09/2026
 
+## Cập nhật 21/09/2026 — lỗi 503 và chuyển key
+
+- Ảnh tiếp theo cho thấy báo cáo thành công nhưng HTTP chỉ có `ping`, một sự kiện
+  `text` chứa toàn bộ báo cáo rồi `[DONE]`. Nguyên nhân trong code: server gọi
+  `generateContent` (đợi toàn bộ) rồi mới đóng gói kết quả thành SSE.
+- Đã chuyển tạo báo cáo và chat sang `streamGenerateContent?alt=sse`, chuyển từng
+  mảnh chữ từ Gemini về trình duyệt ngay khi đến. Chỉ xác nhận hoàn tất khi luồng
+  provider kết thúc với `finishReason: STOP` và HTTP đóng bình thường. Luồng dở
+  được bỏ khi thử key kế tiếp; không lưu nhầm bản chưa hoàn chỉnh.
+- Ảnh production cho thấy `/api/ai-analysis` trả lỗi Gemini 503. Đây là lỗi dịch vụ
+  tạm thời, không chứng minh API key sai hoặc hết hạn mức. Bản 16/09 thử nhiều key
+  trong một request nhưng mỗi key chỉ có tối đa 30 giây, toàn request 55 giây.
+- Theo yêu cầu mới của chú, mỗi key có tối đa 55 giây riêng. Netlify giới hạn
+  function đồng bộ 60 giây, nên giao diện tự gửi request Next mới với danh sách
+  slot đã thử; server không gửi key thật ra trình duyệt. Chuyển key khi 429, 401/403,
+  5xx, timeout, mất kết nối tới Gemini hoặc đầu ra chưa hoàn chỉnh. Chỉ hiện lỗi
+  sau khi mọi key khả dụng đã thử. Một lần bấm có thể lâu hơn một phút.
+- Cố định model `gemini-3.5-flash` để tránh alias `gemini-flash-latest` tự đổi
+  phiên bản. Không phạt key vì 503 hoặc timeout. Vẫn phạt key vì 429/401/403.
+- Kiểm thử giả lập: 43/43 ca Deno chạy tuần tự, `node tests/audit-next.cjs` kiểm
+  hai mảnh SSE cho tạo/sửa, mảnh đầu hiển thị trước khi provider kết thúc, luồng
+  bị cắt, 429, 503, mọi key 503 và timeout 55 giây; UI test, TypeScript check,
+  Edge check và Next production build đều PASS. Lệnh `deno test` trên Windows bị
+  panic ở pipe nên các ca được nạp/chạy tuần tự bằng `deno eval`.
+- Không gọi Gemini thật, không thao tác production hoặc deploy. Cần kiểm lại sau
+  khi chú phát hành bằng một báo cáo thật; mock không chứng minh 503 đã hết hẳn.
+
 ## Chốt Next.js và sửa xác nhận hoàn tất stream
 
 - Network do chú gửi cho thấy website Netlify đã gọi URL Supabase Edge; đây là thông

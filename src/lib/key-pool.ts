@@ -160,9 +160,10 @@ export class KeyPool {
    * chỗ — nó giữ nguyên vị trí và tự quay lại lượt khi hết cooldown.
    * Trả `null` khi cả pool đang nghỉ.
    */
-  acquire(): KeyLease | null {
+  acquire(excludedSlots?: ReadonlySet<number>): KeyLease | null {
     const now = Date.now();
     for (const slot of this.queue) {
+      if (excludedSlots?.has(slot)) continue;
       const s = this.slots[slot];
       if (s.cooldownUntil <= now) {
         if (s.reason !== null) {

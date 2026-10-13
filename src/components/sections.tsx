@@ -605,10 +605,10 @@ export type AiState =
 
 const QUICK_SUGGESTIONS = [
   "🍽️ Phân tích kỹ tên món, giá và mô tả trong Text Menu",
-  "📋 Rút ngắn báo cáo (vừa 1 trang in)",
+  "📋 Tóm tắt kế hoạch hành động 30 ngày cho chủ quán",
   "🤝 Viết giọng tư vấn gửi trực tiếp chủ quán",
   "🏷️ Bổ sung khuyến nghị kênh Đặt bàn",
-  "⭐ Đánh giá lại điểm cạnh tranh khách quan",
+  "⭐ Đánh giá lại điểm sức khỏe GBP theo 5 trụ cột",
 ];
 
 export function AiAuditSection({
@@ -773,7 +773,7 @@ export function AiAuditSection({
                 {score && (
                   <p className="flex items-baseline gap-1 font-display">
                     <span className="wider text-xl font-extrabold text-moss-deep">{score}</span>
-                    <span className="font-mono text-[0.66rem] text-soft">/10 cạnh tranh</span>
+                    <span className="font-mono text-[0.66rem] text-soft">/100 sức khỏe GBP</span>
                   </p>
                 )}
                 {onResetAudit && (

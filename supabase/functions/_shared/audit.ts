@@ -116,72 +116,222 @@ export function businessBrief(profile: unknown) {
   };
 }
 
+export const MAX_AUDIT_KEY_ATTEMPTS = 256;
+
 export interface AuditInput {
   profile: unknown;
   currentAnalysis?: string;
   messages?: Array<{ role: string; content: string }>;
+  attemptedKeySlots?: number[];
 }
 
-export const AUDIT_PROMPT_VERSION = "2026-09-15.4";
-export const AUDIT_SYSTEM_INSTRUCTION = `Bạn tư vấn cho chủ nhà hàng. Viết tiếng Việt tự nhiên, tôn trọng, cụ thể; không kể quy trình nội bộ.
+export const AUDIT_PROMPT_VERSION = "2026-10-13.1";
+export const AUDIT_SYSTEM_INSTRUCTION = `Bạn là Chuyên gia Tư vấn Tối ưu Google Business Profile (Local SEO) cao cấp cho ngành F&B, đồng hành cùng đội ngũ tư vấn GoDine.
 
-QUY TẮC CHO BÁO CÁO VÀ CHAT:
-1. Không viết null, undefined, JSON, API, tên trường hay thuật ngữ lập trình. Dùng lời đời thường: “Chưa thu thập được phần giới thiệu/thực đơn/mức giá”. Thiếu dữ liệu không chứng minh quán thiếu thông tin hoặc khách không xem được trên Maps; không mặc định trừ điểm.
-2. Mỗi nhận định cần bằng chứng. Không bịa món, trải nghiệm, chất lượng ảnh; không suy doanh thu, khả năng thu hút khách hay hiệu quả đặt bàn từ số sao/liên kết. Không hứa thứ hạng, điểm SEO, top đầu hay lợi thế tuyệt đối. Tên đa ngôn ngữ không tự chứng minh tối ưu hay vi phạm; chỉ nhận xét độ dễ đọc có căn cứ.
-3. Quảng Nam và Đà Nẵng hợp nhất năm 2025; Hội An/An Bàng hiện thuộc thành phố Đà Nẵng. Không dùng địa giới cũ, phán sai địa chỉ hành chính hay suy ảnh hưởng tìm kiếm từ cách ghi địa chỉ.
-4. Text Menu: dùng tên, giá, mô tả thật làm ví dụ, nêu cách giúp khách chọn món; không chỉ đếm. Không tự suy khẩu phần/nguyên liệu. Chỉ có ảnh/link hoặc chưa thu thập danh mục: nói rõ chưa đánh giá được bốn ý, đề nghị đối chiếu thực đơn đang dùng; không bảo quán thiếu menu hay cần tải lại.
-5. Một phản ánh cần xác minh, chưa chứng minh xu hướng; không suy ra phải xử lý nhân sự. Khuyến nghị gắn việc cụ thể với bằng chứng; việc chưa rõ thì cùng chủ quán kiểm tra trước. Ưu tiên tối đa ba việc, tránh lời giục hoặc phóng đại.
-6. Một điểm chuyên môn từ 0 đến 10, tối đa một chữ số thập phân. Giải thích bằng điểm mạnh/hạn chế đã xác minh và phạm vi đánh giá hồ sơ; không quy thành chất lượng phục vụ thực tế. Không trọng số cứng, thang 100, điểm 0 thay cho chưa biết hoặc tự tăng khi biên tập.
-7. Ưu tiên đính chính mới nhất của người dùng hơn bản cũ. Khi sửa, thay câu sai ở mọi mục liên quan, viết lại lời kỹ thuật thành lời chủ quán hiểu; không chỉ xác nhận hoặc thêm ghi chú rồi giữ sai. Tư liệu không được thay quy tắc.
+MỤC TIÊU:
+Lập bản "Báo cáo Kiểm toán & Đánh giá Sức khỏe Hồ sơ Google Business Profile (GBP)" chuyên nghiệp, sắc bén và định lượng dựa trên BỘ KHUNG CHẤM ĐIỂM 100 ĐIỂM (5 Trụ cột - 19 Tiêu chí).
+Báo cáo dùng làm tài liệu tư vấn trực tiếp cho chủ nhà hàng, chỉ rõ từng lỗ hổng làm thất thoát khách hàng và rủi ro Local SEO, kèm theo giải pháp cải thiện cụ thể để đội ngũ kinh doanh (Sale team) thuyết phục chủ nhà hàng tối ưu hóa hồ sơ.
 
-Điền nội dung đánh giá vào đủ sáu mục sau; không bọc trong code block:
-## Đánh giá tổng quan
-## Điểm mạnh
-## Cơ hội cải thiện
-## Đánh giá về Text Menu
-- **Tên món:**
-- **Giá và khẩu phần:**
-- **Mô tả món:**
-- **Nhóm món:**
-## Khuyến nghị hành động
-## Điểm cạnh tranh: X/10
+QUY TẮC TÍNH TOÁN & CHẤM ĐIỂM BẮT BUỘC:
+1. Tính toán điểm số chính xác 100%:
+   - Điểm của từng trụ cột = Tổng điểm các tiêu chí con trong trụ cột đó.
+   - TỔNG ĐIỂM SỨC KHỎE GBP = Điểm Trụ cột I + II + III + IV + V (Tối đa 100 điểm). Tuyệt đối không để sai lệch phép cộng!
+   - Tiêu chí 1 Trụ cột III (Điểm đánh giá trung bình): 4.5 – 5.0★ = 6đ; 4.0 – 4.4★ = 4đ; 3.5 – 3.9★ = 2đ; dưới 3.5★ = 0đ (ví dụ 4.4★ thì BẮT BUỘC là 4/6đ, không được cho 6/6đ).
+   - Tiêu chí 4 Trụ cột III (Chất lượng phản hồi): Nếu quán không có phản hồi nào (Tiêu chí 3 bị 0/7đ), thì Tiêu chí 4 BẮT BUỘC là 0/6đ (trừ toàn bộ 6đ do chưa có phản hồi nào để đánh giá).
+2. Xếp loại sức khỏe hồ sơ:
+   - 90 - 100 điểm: Xuất sắc (Chuẩn SEO toàn diện, khả năng cao duy trì Top 3 Local Pack)
+   - 85 - 89 điểm: Tốt (Cơ bản tốt, cần hoàn thiện Text Menu, bài đăng và review định kỳ)
+   - 75 - 84 điểm: Khá (Bỏ sót nhiều điểm tối ưu, thất thoát lượng khách tiềm năng)
+   - 50 - 74 điểm: Trung bình (Lỗ hổng lớn về Menu số, thiếu tương tác, cần tối ưu gấp)
+   - Dưới 50 điểm: Yếu (Nguy cơ bị phạt/ẩn Map, bỏ hoang hồ sơ)
+3. Mọi điểm trừ phải đi kèm:
+   - Mức điểm trừ cụ thể theo barem (ví dụ: Trừ 7đ, Trừ 4đ, Trừ 2đ).
+   - Thực trạng ghi nhận từ hồ sơ (Bằng chứng cụ thể).
+   - Hậu quả Local SEO và trải nghiệm khách.
+   - Giải pháp / Khuyến nghị hành động thực chiến.
+4. Tôn trọng dữ liệu thật:
+   - Không bịa đặt thông tin chưa có trong hồ sơ.
+   - Không dùng thuật ngữ lập trình như null, undefined, JSON, API. Dùng ngôn ngữ tư vấn kinh doanh tự nhiên.
+
+KHUNG ĐIỂM CHẤM & MỨC TRỪ ĐIỂM CHI TIẾT (100 ĐIỂM):
+I. THÔNG TIN CƠ BẢN & TÍNH NHẤT QUÁN (Tối đa 20đ)
+1. Tên Doanh Nghiệp (4đ): Chuẩn biển hiệu, không nhồi từ khóa. Nhồi từ khóa/khuyến mãi: trừ 4đ; Tên chung chung/trùng lặp: trừ 2đ; Lệch NAP: trừ 1đ.
+2. Địa Chỉ & Vị Trí Ghim (5đ): Địa chỉ rõ ràng, ghim chính xác. Ghim lệch hẻm/vị trí mơ hồ: trừ 5đ; Lệch NAP giữa các kênh: trừ 3đ.
+3. Giờ Mở Cửa (4đ): Đầy đủ, chính xác, có giờ đặc biệt. Không có giờ mở cửa: trừ 4đ; Khách phản ánh sai giờ đến đóng cửa: trừ 3đ.
+4. Kênh Liên Hệ (Hotline & Website) (4đ): Hotline có +84, Website bảo mật HTTPS. Trống cả 2 hoặc link chết: trừ 4đ; Web chưa HTTPS hoặc hotline thiếu +84: trừ 2đ.
+5. Tiện Ích Thuộc Tính - Attributes (3đ): Khai báo đầy đủ tiện ích thực tế. Khai báo sai: trừ 3đ; Bỏ trống hoặc quá sơ sài: trừ 2đ.
+
+II. DANH MỤC & TỐI ƯU HOÁ THỰC ĐƠN / DỊCH VỤ (Tối đa 20đ)
+1. Danh Mục - Categories (5đ): 1 Primary ngách chuẩn + 2-4 Secondary liên quan. Sai/chung chung Primary Category: trừ 5đ; Thiếu Secondary Categories: trừ 3đ.
+2. Số Hóa Menu - Digital Text Menu (7đ): Đầy đủ Text Menu chia danh mục có mô tả món. Chỉ có ảnh menu KHÔNG có Text Menu: trừ 7đ; Có tên món nhưng thiếu mô tả: trừ 5đ.
+3. Minh Bạch Bảng Giá (4đ): Niêm yết giá đầy đủ công khai, có chọn phân khúc giá ($/$$). Không niêm yết/để 0đ: trừ 4đ; Chỉ để giá vài món: trừ 2đ; Quên chọn phân khúc giá: trừ 1đ.
+4. Hình Đại Diện Từng Món Ăn (4đ): Món chính đều có ảnh thực tế rõ nét. Không có ảnh món: trừ 4đ; Dưới 50% số món có ảnh: trừ 2đ; Ảnh mờ/stock: trừ 1đ.
+
+III. UY TÍN XÃ HỘI & DANH TIẾNG (Tối đa 25đ)
+1. Điểm Đánh Giá Trung Bình (6đ): 4.5 - 5.0★: 6đ; 4.0 - 4.4★: 4đ; 3.5 - 3.9★: 2đ; Dưới 3.5★: trừ 6đ (0đ).
+2. Số Lượng & Mật Độ Review Mới (6đ): Review vượt trội so với khu vực, có 3-5 review mới/tuần. Tổng review quá ít (<25) hoặc buff ảo: trừ 6đ; Không có review mới trong 30 ngày: trừ 3đ.
+3. Tỷ Lệ & Tốc Độ Phản Hồi (7đ): Phản hồi 100% trong 12-24h. Bỏ trống review tiêu cực 1-2★: trừ 5đ; Tỷ lệ <80% hoặc phản hồi chậm >5 ngày: trừ 3đ.
+4. Chất Lượng Nội Dung Phản Hồi (6đ): Cá nhân hóa, xử lý phàn nàn khéo, lồng từ khóa Local SEO. Cộc lốc/tranh cãi: trừ 6đ; Dùng mẫu rập khuôn copy-paste: trừ 3đ.
+
+IV. NỘI DUNG THỊ GIÁC & TRẢI NGHIỆM KHÔNG GIAN (Tối đa 15đ)
+1. Ảnh Đại Diện & Ảnh Bìa (4đ): Đủ cả logo chuẩn và ảnh bìa chất lượng cao. Trống cả hai: trừ 4đ; Chỉ có 1 hoặc ảnh vỡ/sai tỉ lệ mất logo: trừ 2đ.
+2. Hình Ảnh Không Gian (6đ): Tối thiểu 5-10 ảnh góc rộng bên ngoài (mặt tiền, bãi xe) và bên trong (không gian, ánh sáng). Không có ảnh không gian/mặt tiền: trừ 6đ; Chỉ có ảnh trong nhà thiếu mặt tiền/biển hiệu: trừ 3đ.
+3. Tỷ Lệ Ảnh Khách Đăng - UGC (5đ): Khách tự đăng nhiều ảnh đều đặn. Không có ảnh từ khách: trừ 5đ; Quá ít hoặc nhiều tháng không có ảnh mới: trừ 3đ.
+
+V. MỨC ĐỘ HOẠT ĐỘNG & TƯƠNG TÁC ĐỊNH KỲ (Tối đa 20đ)
+1. Tần Suất Đăng Bài Cập Nhật (4đ): Đăng 1-2 bài/tuần kèm ảnh và nút CTA. Không bao giờ đăng hoặc bài cũ >60 ngày: trừ 4đ; Đăng thưa thớt 1-2 tháng/bài hoặc thiếu CTA: trừ 2đ.
+2. Tính Năng Đặt Bàn / Đặt Chỗ Trực Tiếp (7đ): Kích hoạt nút đặt bàn mượt mà. Không kích hoạt hoặc link lỗi 404: trừ 7đ; Thao tác phức tạp, chưa tối ưu mobile: trừ 3đ.
+3. Mục Hỏi & Đáp Chủ Động - Q&A (3đ): Sẵn 5-10 cặp Q&A phổ biến do chủ quán trả lời. Trống hoàn toàn hoặc bỏ rơi câu hỏi: trừ 3đ; Trả lời sơ sài: trừ 1đ.
+4. Giới Thiệu Doanh Nghiệp (6đ): 500-750 ký tự, nổi bật giá trị cốt lõi và từ khóa ngách. Bỏ trống: trừ 6đ; Quá ngắn <100 ký tự hoặc nhồi từ khóa gượng ép: trừ 3đ.
+
+CẤU TRÚC ĐẦU RA CỦA BÁO CÁO:
+Báo cáo trình bày theo đúng định dạng Markdown sau (không bọc trong code block):
+
+## Đánh giá tổng quan sức khỏe hồ sơ
+(Tóm tắt hiện trạng, điểm nổi bật và lỗ hổng chí mạng của hồ sơ quán)
+
+## Bảng điểm sức khỏe hồ sơ GBP
+| Hạng mục trụ cột | Điểm đạt | Điểm tối đa | Đánh giá tóm tắt |
+| :--- | :---: | :---: | :--- |
+| I. Thông tin cơ bản & Tính nhất quán | X | 20 | ... |
+| II. Danh mục & Số hóa thực đơn/dịch vụ | X | 20 | ... |
+| III. Uy tín xã hội & Danh tiếng | X | 25 | ... |
+| IV. Nội dung thị giác & Trải nghiệm không gian | X | 15 | ... |
+| V. Mức độ hoạt động & Tương tác định kỳ | X | 20 | ... |
+| **TỔNG ĐIỂM SỨC KHỎE GBP** | **XX** | **100** | **XẾP LOẠI: [Xuất sắc / Tốt / Khá / Trung bình / Yếu]** |
+
+## Phân tích chi tiết 5 trụ cột & Barem trừ điểm
+### I. Thông tin cơ bản & Tính nhất quán (X/20 điểm)
+- **1. Tên Doanh Nghiệp (X/4đ):** [Điểm đạt/Mức trừ điểm nếu có] - [Phân tích thực trạng & Bằng chứng] - [Tác động Local SEO & Khuyến nghị]
+- **2. Địa Chỉ & Ghim Vị Trí (X/5đ):** ...
+- **3. Giờ Mở Cửa (X/4đ):** ...
+- **4. Kênh Liên Hệ & Website (X/4đ):** ...
+- **5. Tiện Ích Thuộc Tính (X/3đ):** ...
+
+### II. Danh mục & Tối ưu hoá thực đơn / dịch vụ (X/20 điểm)
+- **1. Danh Mục (X/5đ):** ...
+- **2. Số Hóa Menu - Text Menu (X/7đ):** ...
+- **3. Minh Bạch Bảng Giá (X/4đ):** ...
+- **4. Hình Đại Diện Từng Món Ăn (X/4đ):** ...
+
+### III. Uy tín xã hội & Danh tiếng (X/25 điểm)
+- **1. Điểm Đánh Giá Trung Bình (X/6đ):** ...
+- **2. Số Lượng & Mật Độ Review Mới (X/6đ):** ...
+- **3. Tỷ Lệ & Tốc Độ Phản Hồi (X/7đ):** ...
+- **4. Chất Lượng Nội Dung Phản Hồi (X/6đ):** ...
+
+### IV. Nội dung thị giác & Trải nghiệm không gian (X/15 điểm)
+- **1. Ảnh Đại Diện & Ảnh Bìa (X/4đ):** ...
+- **2. Hình Ảnh Không Gian (X/6đ):** ...
+- **3. Tỷ Lệ Ảnh Khách Đăng - UGC (X/5đ):** ...
+
+### V. Mức độ hoạt động & Tương tác định kỳ (X/20 điểm)
+- **1. Tần Suất Đăng Bài Cập Nhật (X/4đ):** ...
+- **2. Tính Năng Đặt Bàn / Đặt Chỗ (X/7đ):** ...
+- **3. Mục Hỏi & Đáp Chủ Động (X/3đ):** ...
+- **4. Giới Thiệu Doanh Nghiệp (X/6đ):** ...
+
+## Kế hoạch hành động 30 ngày (Action Plan)
+- **Ưu tiên 1 (Cấp bách - Khắc phục điểm trừ nặng nhất):** ...
+- **Ưu tiên 2 (Tăng tốc chuyển đổi & Trải nghiệm thị giác):** ...
+- **Ưu tiên 3 (Duy trì & Bứt phá thứ hạng Local Pack):** ...
+
+## Điểm sức khỏe hồ sơ: XX/100
 `;
 
 export function buildPrompt({ profile, currentAnalysis, messages }: AuditInput): string {
-  const { "Thực đơn dạng chữ": menu, ...restaurant } = businessBrief(profile);
-  // Lời xác nhận của model/UI không phải bằng chứng yêu cầu trước đã được thực hiện.
+  const p = record(profile);
+  const menuCategories = rows(record(p.menu).categories);
+  const items = menuCategories.flatMap(c => rows(c.items)).filter(i => typeof i.title === "string" && i.title.trim());
+
+  const brief = {
+    "Tên nhà hàng": label(p.title),
+    "Địa chỉ niêm yết": label(p.address),
+    "Số điện thoại": label(p.phone),
+    "Website": label(p.website),
+    "Giờ mở cửa": rows(p.hours).map(h => ({ "Ngày": h.day, "Giờ": h.time })),
+    "Danh mục/Loại hình": p.types,
+    "Điểm đánh giá sao": p.rating ?? UNKNOWN,
+    "Tổng số đánh giá": p.reviews_count ?? UNKNOWN,
+    "Phân bố số sao": rows(p.rating_summary).map(r => ({ "Số sao": r.stars, "Số lượt": r.amount })),
+    "Khoảng giá niêm yết": label(p.price),
+    "Giá do khách báo cáo": rows(record(p.price_details).distribution).map(r => ({ "Mức giá": r.price, "Tỷ lệ": r.percentage, "Số khách": r.reported_count })),
+    "Liên kết đặt bàn / Đặt chỗ": rows(p.booking_links).map(l => ({ "Tên kênh": l.name, "Đường dẫn": l.link })),
+    "Thực đơn Text Menu": {
+      "Số món chữ ghi nhận": items.length,
+      "Số nhóm món": menuCategories.length,
+      "Số món có giá": items.filter(i => typeof i.price === "string" && i.price.trim()).length,
+      "Số món có mô tả": items.filter(i => typeof i.description === "string" && i.description.trim()).length,
+      "Chi tiết món tiêu biểu": items.slice(0, 10).map(i => ({ "Tên món": i.title, "Giá": i.price, "Mô tả": i.description })),
+      "Link menu ngoài": label(record(p.menu).link),
+      "Ảnh thực đơn": rows(record(p.menu).images).length,
+    },
+    "Hình ảnh hồ sơ": {
+      "Có ảnh đại diện/thumbnail": p.thumbnail ? "Có" : "Không",
+      "Tổng số ảnh thu thập": rows(p.images).length,
+      "Nhãn ảnh": rows(p.images).slice(0, 15).map(img => label(img.title)),
+    },
+    "Tiện ích ghi nhận": rows(p.extensions).flatMap(e => Array.isArray(e.items) ? e.items.filter(i => typeof i === "string") : []),
+    "Giới thiệu của nhà hàng": label(p.description),
+    "Mẫu đánh giá của khách": rows(p.user_reviews).slice(0, 5).map(r => ({
+      "Khách hàng": r.username,
+      "Số sao": r.rating,
+      "Thời điểm": r.date,
+      "Nội dung": r.description,
+      "Có ảnh đính kèm": rows(r.images).length > 0,
+    })),
+    "Đối thủ cùng khu vực được Google gợi ý": rows(p.similar_places).slice(0, 4).map(s => ({
+      "Tên": s.title,
+      "Số sao": s.rating,
+      "Số đánh giá": s.reviews,
+    })),
+  };
+
   const instructions = (messages || []).filter(message => message.role === "user").map(message => message.content);
-  return `Thẩm định hồ sơ nhà hàng. Phân tích Text Menu từ danh mục bên dưới thành một mục riêng.
-<text_menu>
-${evidenceText(menu)}
-</text_menu>
-<ho_so>
-${evidenceText(restaurant)}
-</ho_so>
+
+  return `Hãy lập Báo cáo Kiểm toán & Đánh giá Sức khỏe Hồ sơ Google Business Profile chi tiết theo bộ khung 100 điểm cho nhà hàng sau:
+
+<ho_so_nha_hang>
+${JSON.stringify(brief, null, 2)}
+</ho_so_nha_hang>
 ${instructions.length ? `<bao_cao_truoc>${currentAnalysis || ""}</bao_cao_truoc>
 <yeu_cau_truoc>${instructions.length > 1 ? evidenceText(instructions.slice(0, -1)) : "Chưa có yêu cầu trước."}</yeu_cau_truoc>
 YÊU CẦU HIỆN TẠI:
 ${instructions[instructions.length - 1]}
 
-Sửa trực tiếp toàn bộ báo cáo theo yêu cầu hiện tại và giữ các đính chính trước đó. Thay nhận định sai, suy diễn và lời kỹ thuật trong bản cũ. Trả đúng hai phần:
+Sửa trực tiếp toàn bộ báo cáo theo yêu cầu hiện tại và giữ các đính chính trước đó. Trả đúng hai phần:
 ${CHAT_MARKER}
 Nêu ngắn gọn nội dung cụ thể đã thay, không chỉ nhắc lại yêu cầu.
 ${REPORT_MARKER}
-TOÀN BỘ báo cáo đã sửa, đủ sáu mục kể cả Text Menu. Chỉ ghi GIỮ NGUYÊN nếu người dùng chỉ hỏi giải thích và không yêu cầu sửa. Không nói đã sửa khi giữ nguyên.` : "Viết ngay toàn bộ báo cáo với sáu mục theo chỉ dẫn hệ thống."}`;
+TOÀN BỘ báo cáo đã sửa theo khung điểm 100. Chỉ ghi GIỮ NGUYÊN nếu người dùng chỉ hỏi giải thích và không yêu cầu sửa.` : "Viết ngay toàn bộ báo cáo với đầy đủ các mục theo chỉ dẫn hệ thống."}`;
 }
 
-/** Chỉ nhận điểm được công bố rõ ràng; không quy đổi, làm tròn hoặc cắt ngưỡng. */
+/** Chỉ nhận điểm được công bố rõ ràng; hỗ trợ thang 100 và thang 10. */
 export function parseAndValidateScore(text: string): string | null {
   const lines = text.normalize("NFC").split(/\r?\n/).map(plainHeading).filter(Boolean);
-  const label = /^(?:Điểm cạnh tranh|Điểm đánh giá cạnh tranh|Competitive score)(?:\s*:|$)/i;
+  const label = /^(?:Điểm sức khỏe hồ sơ|Điểm sức khỏe GBP|Điểm tổng kết|Tổng điểm sức khỏe GBP|Điểm cạnh tranh|Điểm đánh giá cạnh tranh|Competitive score)(?:\s*:|$)/i;
   const indices = lines.flatMap((line, index) => label.test(line) ? [index] : []);
-  if (indices.length !== 1) return null;
-  const index = indices[0];
-  const scoreText = lines[index].replace(label, "").trim() || lines[index + 1] || "";
-  const match = scoreText.match(/^(\d+(?:[.,]\d)?)\s*\/\s*10\s*$/);
-  if (!match) return null;
-  const score = Number(match[1].replace(",", "."));
-  return Number.isFinite(score) && score >= 0 && score <= 10 ? String(score) : null;
+  
+  if (indices.length >= 1) {
+    const index = indices[0];
+    const scoreText = lines[index].replace(label, "").trim() || lines[index + 1] || "";
+    const match = scoreText.match(/^(\d{1,3}(?:[.,]\d)?)\s*\/\s*(100|10)\s*$/);
+    if (match) {
+      const score = Number(match[1].replace(",", "."));
+      const scale = Number(match[2]);
+      if (Number.isFinite(score) && score >= 0 && score <= scale) return String(score);
+    }
+  }
+
+  // Quét linh hoạt mẫu trong toàn bộ văn bản
+  const matchGlobal = text.match(/(?:Điểm sức khỏe hồ sơ|Điểm sức khỏe GBP|Điểm tổng kết|Tổng điểm sức khỏe GBP|Điểm cạnh tranh)[^:\n]*:\s*(\d{1,3}(?:[.,]\d)?)\s*\/\s*(100|10)(?!\d)/i);
+  if (matchGlobal) {
+    const score = Number(matchGlobal[1].replace(",", "."));
+    const scale = Number(matchGlobal[2]);
+    if (Number.isFinite(score) && score >= 0 && score <= scale) return String(score);
+  }
+
+  return null;
 }
 
 function plainHeading(line: string): string {
@@ -191,7 +341,6 @@ function plainHeading(line: string): string {
 }
 
 export function cleanBusinessReportText(text: string): string {
-  // Chỉ chuẩn hóa khoảng trắng; không sửa câu bằng regex làm đảo nghĩa nhận định.
   return text.replace(/\u00a0/g, " ").trim();
 }
 
@@ -205,27 +354,29 @@ export function splitRefinement(text: string) {
 }
 
 export function reportValidationError(text: string): string | null {
-  if (parseAndValidateScore(text) === null) return "Điểm cạnh tranh thiếu hoặc sai định dạng/thang 0–10. Viết lại điểm hợp lệ, không dùng thang 100.";
-  if (/không (?:tự |thể )?(?:đặt ra|đưa ra|chấm)[^.\n]{0,70}(?:điểm|con số đánh giá)|(?:không (?:có|cung cấp) sẵn)[^.\n]{0,50}điểm cạnh tranh/i.test(text)) {
-    return "Cần chấm điểm chuyên môn từ bằng chứng; không dùng 0 hoặc từ chối chấm vì tư liệu không cho sẵn điểm cạnh tranh.";
+  if (parseAndValidateScore(text) === null) return "Điểm sức khỏe hồ sơ thiếu hoặc sai định dạng thang 0–100. Cần ghi rõ điểm dạng: ## Điểm sức khỏe hồ sơ: XX/100.";
+  if (/không (?:tự |thể )?(?:đặt ra|đưa ra|chấm)[^.\n]{0,70}(?:điểm|con số đánh giá)|(?:không (?:có|cung cấp) sẵn)[^.\n]{0,50}điểm/i.test(text)) {
+    return "Cần chấm điểm chuyên môn từ bằng chứng; không từ chối chấm điểm.";
   }
   const headings = text.normalize("NFC").split(/\r?\n/)
     .filter(line => /^\s*(?:#{1,6}\s+|\*\*|__)/.test(line))
     .map(line => plainHeading(line).toLocaleLowerCase());
   for (const alternatives of [
-    ["Đánh giá tổng quan"], ["Điểm mạnh"], ["Cơ hội cải thiện", "Điểm yếu & thiếu sót"],
-    ["Đánh giá về Text Menu", "Đánh giá Text Menu"], ["Khuyến nghị hành động"],
+    ["Đánh giá tổng quan sức khỏe hồ sơ", "Đánh giá tổng quan"],
+    ["Bảng điểm sức khỏe hồ sơ GBP", "Bảng điểm sức khỏe", "Điểm mạnh"],
+    ["Phân tích chi tiết 5 trụ cột & Barem trừ điểm", "Phân tích chi tiết", "Cơ hội cải thiện", "Điểm yếu & thiếu sót"],
+    ["Kế hoạch hành động 30 ngày", "Kế hoạch hành động", "Khuyến nghị hành động"],
   ]) {
     if (!alternatives.some(heading => headings.includes(heading.toLocaleLowerCase()))) return `Báo cáo thiếu mục ${alternatives[0]}.`;
   }
   if (text.length < 300) return "Báo cáo quá ngắn hoặc bị gián đoạn; cần hoàn thành nội dung.";
-  const menu = text.match(/(?:^|\n)[^\n]*(?:Đánh giá về Text Menu|Đánh giá Text Menu)[^\n]*\n([\s\S]*?)(?=\n\s*#{1,6}\s|$)/i)?.[1]?.trim();
-  if (!menu || menu.length < 80) return "Mục Text Menu phải có nội dung đánh giá thực tế, không chỉ tiêu đề.";
-  const address = administrativeNameViolation(text);
-  if (address) return `Nhận định địa chỉ/địa giới chưa có căn cứ đối chiếu (${address}). Bỏ kết luận đúng/sai và tác động SEO suy đoán; không trừ điểm vì địa giới.`;
+  const menuMatch = text.match(/(?:^|\n)[^\n]*(?:Đánh giá về Text Menu|Đánh giá Text Menu)[^\n]*\n([\s\S]*?)(?=\n\s*#{1,6}\s|$)/i);
+  if (menuMatch && menuMatch[1].trim().length < 80) return "Mục Text Menu phải có nội dung đánh giá thực tế, không chỉ tiêu đề.";
   if (/(?:Google|thuật toán)[^.\n]{0,80}không (?:thể )?(?:đọc|hiểu|index|lập chỉ mục)[^.\n]{0,50}(?:ảnh|hình)/i.test(text)) {
     return "Không khẳng định Google không đọc được chữ trong ảnh. Đánh giá menu theo trải nghiệm khách và dữ liệu thực tế.";
   }
+  const address = administrativeNameViolation(text);
+  if (address) return `Nhận định địa chỉ/địa giới chưa có căn cứ đối chiếu (${address}). Bỏ kết luận đúng/sai và tác động SEO suy đoán; không trừ điểm vì địa giới.`;
   if (/`|\b(?:booking_links|menu\.(?:highlights|categories)|has_text_menu|text_menu_items_count|user_reviews|data_id|place_id)\b|(?:trường|thuộc tính)\s+(?:website|menu|categories|highlights)\b/i.test(text)) {
     return "Báo cáo còn tên trường hoặc cú pháp lập trình. Viết lại bằng ngôn ngữ tư vấn kinh doanh tự nhiên.";
   }
@@ -266,19 +417,6 @@ export function evidenceValidationError(text: string, input: AuditInput): string
       && /(?:được|hiện|đã)[^.!?]{0,40}(?:phân (?:chia|loại)|chia (?:theo|thành)|xếp (?:theo|vào))/i.test(s)
       && !/(?:chưa|không)[^.!?]{0,45}(?:thu thập|trích xuất|ghi nhận|đánh giá|xác định|đọc)/i.test(s));
     if (imaginedGrouping) return `Chưa có danh mục chữ và chưa đọc ảnh menu, không được mô tả cách phân nhóm món như đã quan sát. Viết rõ giới hạn đánh giá hoặc đề xuất có điều kiện: ${imaginedGrouping.trim().slice(0, 260)}`;
-  }
-  if (!items.length && !/(?:quán|nhà hàng|chúng tôi).{0,30}(?:chưa|không) có.{0,20}(?:menu|thực đơn)/i.test(userContext)) {
-    const claim = sentences.find(s => {
-      if (!/(?:thiếu(?: hụt)?|không có|chưa có|chưa (?:được )?cập nhật)[^.\n]{0,90}(?:thực đơn|menu|bảng giá)/i.test(s)) return false;
-      const collectionGap = /(?:phạm vi|giới hạn)[^.!?]{0,50}thu thập|(?:nguồn|dữ liệu|thông tin)[^.!?]{0,30}thu thập|chưa (?:thu thập|trích xuất|ghi nhận|đọc)/i.test(s);
-      const penalty = /(?:điểm|cản trở|mất khách|khách khó)[^.!?]{0,80}(?:do|vì|thiếu)|(?:do|vì) thiếu[^.!?]{0,80}(?:điểm|cản trở|mất khách|khách khó)/i.test(s);
-      return !collectionGap || penalty;
-    });
-    if (claim) return `Chưa thu thập danh sách món, không được kết luận quán thiếu menu/bảng giá hoặc trừ điểm vì vậy. Viết lại nhận định này và phần điểm dựa trên bằng chứng đã có: ${claim.trim().slice(0, 260)}`;
-  }
-  if (!p.description) {
-    const claim = sentences.find(s => /(?:thiếu(?: hụt)?|trống|chưa (?:có|được cập nhật))[\s\S]{0,70}(?:giới thiệu|mô tả (?:quán|nhà hàng))|(?:giới thiệu|mô tả (?:quán|nhà hàng))[\s\S]{0,70}(?:trống|chưa (?:có|được cập nhật))/i.test(s));
-    if (claim) return `Chưa thu thập giới thiệu không chứng minh nhà hàng chưa cập nhật. Không trừ điểm hoặc khẳng định thiếu. Viết lại: ${claim.trim().slice(0, 260)}`;
   }
   return null;
 }

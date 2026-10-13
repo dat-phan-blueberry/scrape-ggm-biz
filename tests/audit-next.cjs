@@ -2,7 +2,7 @@ const assert = require("node:assert/strict");
 require("./register.cjs");
 const { POST } = require("../src/app/api/ai-analysis/route.ts");
 const { AUDIT_PROMPT_VERSION, AUDIT_SYSTEM_INSTRUCTION, CHAT_MARKER, REPORT_MARKER } = require("../supabase/functions/_shared/audit.ts");
-const { readAiResponse } = require("../src/lib/ai-response.ts");
+const { readAiResponse, requestAiAudit, requestAiRefinement } = require("../src/lib/ai-response.ts");
 const { getAiEndpoint } = require("../src/lib/ai-config.ts");
 
 // Kiểm tra request thật của route; phản hồi model giả lập, không đo chất lượng AI.
@@ -18,6 +18,13 @@ const oldConfirmation = 'Đã cập nhật báo cáo theo yêu cầu: "Dùng đ�
 const originalFetch = globalThis.fetch;
 const originalKey = process.env.GOOGLE_AI_STUDIO_API_KEY;
 const originalEndpoint = process.env.NEXT_PUBLIC_AI_ANALYSIS_URL;
+const streamed = text => {
+  const midpoint = Math.ceil(text.length / 2);
+  const event = (part, finishReason) => `data: ${JSON.stringify({ candidates: [{ ...(finishReason ? { finishReason } : {}), content: { parts: [{ text: part }] } }] })}\n\n`;
+  return new Response(event(text.slice(0, midpoint)) + event(text.slice(midpoint), "STOP"), {
+    headers: { "Content-Type": "text/event-stream" },
+  });
+};
 
 (async () => {
   process.env.GOOGLE_AI_STUDIO_API_KEY = "test-key";
@@ -26,7 +33,7 @@ const originalEndpoint = process.env.NEXT_PUBLIC_AI_ANALYSIS_URL;
   for (const chat of [false, true]) {
     let calls = 0;
     globalThis.fetch = async (url, options) => {
-      assert.ok(String(url).startsWith("https://generativelanguage.googleapis.com/"));
+      assert.equal(String(url), "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse");
       calls++;
       const body = JSON.parse(options.body);
       assert.deepEqual(body.systemInstruction, { parts: [{ text: AUDIT_SYSTEM_INSTRUCTION }] });
@@ -46,9 +53,7 @@ const originalEndpoint = process.env.NEXT_PUBLIC_AI_ANALYSIS_URL;
         assert.ok(!prompt.includes(oldConfirmation));
         assert.ok(prompt.indexOf(latestInstruction) > prompt.indexOf(oldReport));
       }
-      return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{
-        text: chat ? `${CHAT_MARKER}\nĐã sửa.\n${REPORT_MARKER}\n${newReport}` : newReport,
-      }] } }] });
+      return streamed(chat ? `${CHAT_MARKER}\nĐã sửa.\n${REPORT_MARKER}\n${newReport}` : newReport);
     };
     const response = await POST(new Request("http://local.test/api/ai-analysis", {
       method: "POST", headers: { "Content-Type": "application/json" },
@@ -58,35 +63,181 @@ const originalEndpoint = process.env.NEXT_PUBLIC_AI_ANALYSIS_URL;
     }));
     assert.equal(response.status, 200);
     assert.equal(response.headers.get("X-Audit-Prompt-Version"), AUDIT_PROMPT_VERSION);
-    const result = await readAiResponse(response, chat ? oldReport : undefined);
+    assert.match(response.headers.get("Content-Type"), /text\/event-stream/);
+    const previews = [];
+    const result = await readAiResponse(response, chat ? oldReport : undefined, text => previews.push(text));
     assert.equal(result.analysis, newReport);
+    assert.equal(previews.length, 2);
     assert.equal(calls, 1);
-    console.log(`PASS Next ${chat ? "chat JSON" : "initial SSE"}: system instruction, full menu payload, prompt version, one provider call, updated report.`);
+    console.log(`PASS Next ${chat ? "chat SSE" : "initial SSE"}: system instruction, full menu payload, two deltas, updated report.`);
+  }
+
+  {
+    delete globalThis.__diaBaKeyPools__;
+    process.env.GOOGLE_AI_STUDIO_API_KEY = `test-stream-${process.pid}-${Date.now()}`;
+    const encoder = new TextEncoder();
+    const prefix = newReport.slice(0, 20);
+    const event = (text, finishReason) => `data: ${JSON.stringify({ candidates: [{ ...(finishReason ? { finishReason } : {}), content: { parts: [{ text }] } }] })}\n\n`;
+    let releaseProvider;
+    let seenFirst;
+    const firstVisible = new Promise(resolve => { seenFirst = resolve; });
+    globalThis.fetch = async (url, options) => {
+      if (String(url) === "http://local.test/api/ai-analysis") return POST(new Request(String(url), options));
+      return new Response(new ReadableStream({
+        start(controller) {
+          controller.enqueue(encoder.encode(event(prefix)));
+          releaseProvider = () => {
+            controller.enqueue(encoder.encode(event(newReport.slice(20), "STOP")));
+            controller.close();
+          };
+        },
+      }), { headers: { "Content-Type": "text/event-stream" } });
+    };
+    let settled = false;
+    let waitTimer;
+    const audit = requestAiAudit("http://local.test/api/ai-analysis", { profile }, text => {
+      if (text === prefix) seenFirst();
+    }).finally(() => { settled = true; });
+    try {
+      await Promise.race([firstVisible, new Promise((_, reject) => { waitTimer = setTimeout(() => reject(new Error("First delta did not arrive")), 2_000); })]);
+      assert.equal(settled, false);
+      releaseProvider();
+      assert.equal(await audit, newReport);
+      console.log("PASS Progressive streaming: nội dung đầu hiển thị trước khi Gemini kết thúc.");
+    } finally { clearTimeout(waitTimer); if (!settled) releaseProvider?.(); }
   }
 
   // Kiểm tra xoay key khi 429
   {
     delete globalThis.__diaBaKeyPools__;
-    process.env.GOOGLE_AI_STUDIO_API_KEY = "test-key-1,test-key-2";
+    const [firstKey, secondKey] = [`test-key-1-${process.pid}-${Date.now()}`, `test-key-2-${process.pid}-${Date.now()}`];
+    process.env.GOOGLE_AI_STUDIO_API_KEY = `${firstKey},${secondKey}`;
     const attempts = [];
+    let appCalls = 0;
     globalThis.fetch = async (url, options) => {
+      if (String(url) === "http://local.test/api/ai-analysis") {
+        appCalls++;
+        return POST(new Request(String(url), options));
+      }
       const keyUsed = options.headers["x-goog-api-key"];
       attempts.push(keyUsed);
-      if (keyUsed === "test-key-1") {
+      if (keyUsed === firstKey) {
         return Response.json({ error: { message: "Quota exceeded" } }, { status: 429 });
       }
-      return Response.json({ candidates: [{ finishReason: "STOP", content: { parts: [{ text: newReport }] } }] });
+      return streamed(newReport);
     };
 
-    const response = await POST(new Request("http://local.test/api/ai-analysis", {
-      method: "POST", headers: { "Content-Type": "application/json" },
-      body: JSON.stringify({ profile }),
-    }));
-    assert.equal(response.status, 200);
-    const result = await readAiResponse(response);
+    const analysis = await requestAiAudit("http://local.test/api/ai-analysis", { profile });
+    assert.equal(analysis, newReport);
+    assert.deepEqual(attempts, [firstKey, secondKey]);
+    assert.equal(appCalls, 2);
+    console.log("PASS Key rotation: 429 chuyển sang key 2 qua request mới.");
+  }
+
+  // 503 vẫn thử key kế tiếp; key đầu không bị phạt.
+  {
+    delete globalThis.__diaBaKeyPools__;
+    const firstKey = `test-busy-1-${process.pid}-${Date.now()}`;
+    const secondKey = `test-busy-2-${process.pid}-${Date.now()}`;
+    process.env.GOOGLE_AI_STUDIO_API_KEY = `${firstKey},${secondKey}`;
+    const attempts = [];
+    let appCalls = 0;
+    globalThis.fetch = async (url, options) => {
+      if (String(url) === "http://local.test/api/ai-analysis") {
+        appCalls++;
+        return POST(new Request(String(url), options));
+      }
+      const key = options.headers["x-goog-api-key"];
+      attempts.push(key);
+      return key === firstKey
+        ? Response.json({ error: { message: "Unavailable" } }, { status: 503 })
+        : streamed(newReport);
+    };
+    assert.equal(await requestAiAudit("http://local.test/api/ai-analysis", { profile }), newReport);
+    assert.deepEqual(attempts, [firstKey, secondKey]);
+    assert.equal(appCalls, 2);
+    assert.equal(globalThis.__diaBaKeyPools__.get("gemini").snapshot().keys[0].penalties, 0);
+    console.log("PASS Service unavailable: 503 chuyển sang key 2, key 1 không bị phạt.");
+  }
+
+  {
+    delete globalThis.__diaBaKeyPools__;
+    const keys = [`test-cut-1-${process.pid}-${Date.now()}`, `test-cut-2-${process.pid}-${Date.now()}`];
+    process.env.GOOGLE_AI_STUDIO_API_KEY = keys.join(",");
+    const previews = [];
+    const attempts = [];
+    globalThis.fetch = async (url, options) => {
+      if (String(url) === "http://local.test/api/ai-analysis") return POST(new Request(String(url), options));
+      const key = options.headers["x-goog-api-key"];
+      attempts.push(key);
+      return key === keys[0]
+        ? new Response(`data: ${JSON.stringify({ candidates: [{ content: { parts: [{ text: "Bản dở" }] } }] })}\n\n`, { headers: { "Content-Type": "text/event-stream" } })
+        : streamed(newReport);
+    };
+    assert.equal(await requestAiAudit("http://local.test/api/ai-analysis", { profile }, text => previews.push(text)), newReport);
+    assert.deepEqual(attempts, keys);
+    assert.ok(previews.includes("Bản dở"));
+    assert.ok(previews.includes(""));
+    assert.equal(previews.at(-1), newReport);
+    console.log("PASS Interrupted stream: bỏ bản dở và nhận trọn báo cáo từ key tiếp theo.");
+  }
+
+  {
+    delete globalThis.__diaBaKeyPools__;
+    const keys = [`test-fail-1-${process.pid}-${Date.now()}`, `test-fail-2-${process.pid}-${Date.now()}`];
+    process.env.GOOGLE_AI_STUDIO_API_KEY = keys.join(",");
+    const attempts = [];
+    globalThis.fetch = async (url, options) => {
+      if (String(url) === "http://local.test/api/ai-analysis") return POST(new Request(String(url), options));
+      attempts.push(options.headers["x-goog-api-key"]);
+      return Response.json({ error: { message: "Unavailable" } }, { status: 503 });
+    };
+    await assert.rejects(requestAiAudit("http://local.test/api/ai-analysis", { profile }), error => error.status === 503);
+    assert.deepEqual(attempts, keys);
+    console.log("PASS All keys failed: chỉ báo 503 sau khi đã thử cả hai key.");
+  }
+
+  {
+    delete globalThis.__diaBaKeyPools__;
+    const keys = [`test-chat-1-${process.pid}-${Date.now()}`, `test-chat-2-${process.pid}-${Date.now()}`];
+    process.env.GOOGLE_AI_STUDIO_API_KEY = keys.join(",");
+    const attempts = [];
+    globalThis.fetch = async (url, options) => {
+      if (String(url) === "http://local.test/api/ai-analysis") return POST(new Request(String(url), options));
+      const key = options.headers["x-goog-api-key"];
+      attempts.push(key);
+      return key === keys[0] ? Response.json({ error: { message: "Unavailable" } }, { status: 503 })
+        : streamed(`${CHAT_MARKER}\nĐã sửa.\n${REPORT_MARKER}\n${newReport}`);
+    };
+    const result = await requestAiRefinement("http://local.test/api/ai-analysis", { profile, currentAnalysis: oldReport, messages: [{ role: "user", content: latestInstruction }] });
     assert.equal(result.analysis, newReport);
-    assert.deepEqual(attempts, ["test-key-1", "test-key-2"]);
-    console.log("PASS Key rotation: key 1 bị 429 tự động chuyển sang key 2 thành công.");
+    assert.deepEqual(attempts, keys);
+    console.log("PASS Chat: lỗi key đầu chuyển key thứ hai và nhận báo cáo mới.");
+  }
+
+  {
+    delete globalThis.__diaBaKeyPools__;
+    const keys = [`test-slow-1-${process.pid}-${Date.now()}`, `test-slow-2-${process.pid}-${Date.now()}`];
+    process.env.GOOGLE_AI_STUDIO_API_KEY = keys.join(",");
+    const originalTimeout = AbortSignal.timeout;
+    const waits = [];
+    const attempts = [];
+    AbortSignal.timeout = ms => {
+      waits.push(ms);
+      return waits.length === 1 ? AbortSignal.abort() : originalTimeout(ms);
+    };
+    globalThis.fetch = async (url, options) => {
+      if (String(url) === "http://local.test/api/ai-analysis") return POST(new Request(String(url), options));
+      attempts.push(options.headers["x-goog-api-key"]);
+      if (options.signal.aborted) throw new DOMException("Timed out", "AbortError");
+      return streamed(newReport);
+    };
+    try {
+      assert.equal(await requestAiAudit("http://local.test/api/ai-analysis", { profile }), newReport);
+      assert.deepEqual(attempts, keys);
+      assert.deepEqual(waits, [55_000, 55_000]);
+      console.log("PASS Timeout: mỗi key có 55 giây, key kế tiếp được thử qua request mới.");
+    } finally { AbortSignal.timeout = originalTimeout; }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {
   globalThis.fetch = originalFetch;

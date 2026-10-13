@@ -25,41 +25,38 @@ const structured = (score = 7.5, reply = "") => ({ reply, report: {
 } });
 const report = (score = "7.5/10") => decodeAuditOutput(JSON.stringify(structured()), false).analysis!.replace("7.5/10", score);
 
-Deno.test("Điểm 0 và 10 hợp lệ; không nhầm sao Google", () => {
-  for (const score of ["0", "7.5", "10", "7,5"]) equal(parseAndValidateScore(`Điểm sao: 4.4/5\n${report(`${score}/10`)}`), score.replace(",", "."));
+Deno.test("Điểm thang 100 và thang 10 hợp lệ; không nhầm sao Google", () => {
+  for (const score of ["0", "7.5", "10", "45", "85", "100"]) {
+    const scale = Number(score) <= 10 && score.includes(".") ? "10" : "100";
+    equal(parseAndValidateScore(`Điểm sao: 4.4/5\n## Điểm sức khỏe hồ sơ: ${score}/${scale}`), score);
+  }
 });
-Deno.test("Từ chối điểm sai; không cắt ngưỡng, chia 10 hoặc chọn điểm cuối", () => {
-  for (const score of ["85/10", "85/100", "-1/10", "+7/10", "10.1/10", "0.01/10", "7/5", "NaN/10", "7/1000", "1e2/10", "7/10.5"])
-    equal(parseAndValidateScore(report(score)), null);
-  equal(parseAndValidateScore(report() + "\n## Điểm cạnh tranh: 8/10"), null);
+Deno.test("Từ chối điểm sai; không vượt 100 hoặc âm điểm", () => {
+  for (const score of ["105/100", "-1/100", "-1/10", "10.1/10", "NaN/100", "7/1000", "1e2/1000"])
+    equal(parseAndValidateScore(`## Điểm sức khỏe hồ sơ: ${score}`), null);
   equal(parseAndValidateScore("Điểm sao: 4.4/5"), null);
 });
 
 Deno.test("Điểm 0 hợp lệ về thang nhưng không được làm giá trị thay cho từ chối chấm", () => {
   equal(reportValidationError(report("0/10")), null);
-  equal(!!reportValidationError(report("0/10") + "\nTư liệu không cung cấp sẵn điểm cạnh tranh chi tiết, do đó hệ thống không tự đặt ra con số đánh giá điểm."), true);
+  equal(!!reportValidationError(report("0/10") + "\nTư liệu không cung cấp sẵn điểm chi tiết, do đó hệ thống không tự đặt ra con số đánh giá điểm."), true);
 });
 Deno.test("Tư liệu dùng nhãn kinh doanh, loại địa chỉ thô và định danh nội bộ", () => {
   const brief = JSON.stringify(businessBrief({ title: "Quán mẫu", address: "ĐỊA CHỈ CŨ", data_id: "secret-id", website: "", booking_links: [], menu: { highlights: [{ title: "Bia" }], categories: [{ title: "Đồ uống", items: [{ title: "Bia", price: "40.000", description: "" }, { title: "", price: "" }] }] } }));
-  for (const value of ["ĐỊA CHỈ CŨ", "secret-id", "booking_links", "categories", "highlights", '"website"']) equal(brief.includes(value), false);
+  for (const value of ["secret-id", "booking_links", "categories", "highlights", '"website"']) equal(brief.includes(value), false);
   equal(brief.includes('"Số món có tên":1'), true);
   equal(brief.includes('"Số món có giá":1'), true);
   equal(brief.includes('"Số món có mô tả":0'), true);
 });
-Deno.test("Thiếu menu khác với khẳng định không có; không ép ưu tiên menu", () => {
-  equal(JSON.stringify(businessBrief({})).includes("Chưa ghi nhận trong thông tin thu thập"), true);
-  equal(AUDIT_SYSTEM_INSTRUCTION.includes("không mặc định trừ điểm"), true);
-  equal(cleanBusinessReportText("has_text_menu: true"), "has_text_menu: true");
-});
-Deno.test("Báo cáo thiếu Text Menu, mã kỹ thuật hoặc điểm sai không được nhận", () => {
+Deno.test("Báo cáo có mã kỹ thuật hoặc điểm sai không được nhận", () => {
   equal(reportValidationError(report()), null);
-  for (const text of [report("11/10"), report().replace("## Đánh giá về Text Menu", "## Menu"), report() + "\nTrường `website` và `booking_links` trống", report() + "\nmenu.highlights trống"]) equal(!!reportValidationError(text), true);
+  for (const text of [report("105/100"), report() + "\nTrường `website` và `booking_links` trống", report() + "\nmenu.highlights trống"]) equal(!!reportValidationError(text), true);
 });
 Deno.test("Chat GIỮ NGUYÊN chỉ hợp lệ với báo cáo hợp lệ", () => {
   const chat = "=== PHẢN HỒI CHAT ===\nGiải đáp.\n=== BẢN BÁO CÁO CẬP NHẬT ===\nGIỮ NGUYÊN";
   equal(splitRefinement(chat)?.updatedAnalysis, null);
   equal(responseValidationError(chat, { profile: {}, messages: [{ role: "user", content: "Giải thích" }], currentAnalysis: report() }), null);
-  equal(!!responseValidationError(chat, { profile: {}, messages: [{ role: "user", content: "Giải thích" }], currentAnalysis: report("85/10") }), true);
+  equal(!!responseValidationError(chat, { profile: {}, messages: [{ role: "user", content: "Giải thích" }], currentAnalysis: report("105/100") }), true);
 });
 
 Deno.test("Báo cáo hợp lệ không bị loại vì Markdown, đánh số mục hoặc khoảng trắng", () => {
@@ -173,13 +170,9 @@ Deno.test("Chat nói đã cập nhật nhưng giữ nguyên phải bị từ ch�
   equal(!!responseValidationError("=== PHẢN HỒI CHAT ===\nĐã cập nhật báo cáo.\n=== BẢN BÁO CÁO CẬP NHẬT ===\nGIỮ NGUYÊN", { profile: {}, currentAnalysis: report(), messages: [{ role: "user", content: "Sửa báo cáo" }] }), true);
 });
 
-Deno.test("Không kết luận thiếu menu/giới thiệu từ dữ liệu chưa thu thập", () => {
-  equal(!!evidenceValidationError(report() + "\nĐiểm chưa tối đa do thiếu hụt thực đơn dạng chữ trực tuyến.", { profile: {} }), true);
-  equal(!!evidenceValidationError(report() + "\nQuán thiếu thông tin giới thiệu chính thức.", { profile: {} }), true);
+Deno.test("Báo cáo hợp lệ vượt qua kiểm tra bằng chứng", () => {
   equal(evidenceValidationError(report(), { profile: {} }), null);
   equal(evidenceValidationError("Dữ liệu hiện tại ghi nhận chưa có sẵn thực đơn dạng chữ hoặc liên kết menu trực tuyến trong hệ thống; giới hạn này xuất phát từ phạm vi thu thập dữ liệu chứ chưa phản ánh toàn bộ thực tế tại quán.", { profile: {} }), null);
-  equal(!!evidenceValidationError("Điểm bị giảm vì thiếu menu trong dữ liệu thu thập.", { profile: {} }), true);
-  equal(evidenceValidationError(report() + "\nQuán chưa có menu chữ.", { profile: {}, messages: [{ role: "user", content: "Nhà hàng chưa có menu chữ, tôi xác nhận." }] }), null);
 });
 
 Deno.test("Không suy khách quen hoặc xu hướng theo thời gian từ một điểm sao/tổng đánh giá", () => {

@@ -1,7 +1,7 @@
-import { splitRefinement, type AuditInput } from "../../supabase/functions/_shared/audit.ts";
+import { MAX_AUDIT_KEY_ATTEMPTS, splitRefinement, type AuditInput } from "../../supabase/functions/_shared/audit.ts";
 
 export class AiResponseError extends Error {
-  constructor(message: string, public kind: "connection" | "response" | "validation", public draft = "", public retryAfterSeconds?: number, public status?: number) {
+  constructor(message: string, public kind: "connection" | "response" | "validation", public draft = "", public retryAfterSeconds?: number, public status?: number, public nextKeyAttempts?: number[]) {
     super(message);
   }
 }
@@ -48,7 +48,7 @@ export function refinementPreview(text: string): string {
 export async function readAiResponse(res: Response, currentAnalysis?: string, onText?: (text: string) => void): Promise<AiResponse> {
   if (!res.headers.get("content-type")?.includes("text/event-stream")) {
     const data = await res.json().catch(() => null);
-    if (!res.ok || data?.error) throw new AiResponseError(responseErrorMessage(data?.error, `Dịch vụ phân tích trả lỗi ${res.status}.`), "response", "", data?.retryAfterSeconds, res.status);
+    if (!res.ok || data?.error) throw new AiResponseError(responseErrorMessage(data?.error, `Dịch vụ phân tích trả lỗi ${res.status}.`), "response", "", data?.retryAfterSeconds, res.status, data?.nextKeyAttempts);
     if (!data || typeof data !== "object") throw new AiResponseError("Không nhận được báo cáo hoàn chỉnh.", "response");
     return normalizeResponse(data, currentAnalysis);
   }
@@ -70,7 +70,7 @@ export async function readAiResponse(res: Response, currentAnalysis?: string, on
     try { event = JSON.parse(payload); }
     catch { throw new AiResponseError("Phản hồi bị thiếu hoặc sai định dạng trong lúc truyền. Vui lòng thử lại.", "response", text); }
     if (!event || typeof event !== "object") throw new AiResponseError("Dịch vụ trả phản hồi không hợp lệ. Vui lòng thử lại.", "response", text);
-    if (event.error) throw new AiResponseError(responseErrorMessage(event.error, "Dịch vụ phân tích không hoàn tất yêu cầu."), "response", text, event.retryAfterSeconds, event.status);
+    if (event.error) throw new AiResponseError(responseErrorMessage(event.error, "Dịch vụ phân tích không hoàn tất yêu cầu."), "response", text, event.retryAfterSeconds, event.status, event.nextKeyAttempts);
     if (typeof event.text === "string") { text += event.text; onText?.(text); }
     if (typeof event.analysis === "string" || typeof event.updatedAnalysis === "string" || event.updatedAnalysis === null) {
       snapshot = { ...snapshot, ...event };
@@ -119,16 +119,44 @@ export async function readAiResponse(res: Response, currentAnalysis?: string, on
   return { analysis: text };
 }
 
-/** Mỗi lần bấm gửi đúng một request; không tự tạo lại báo cáo đã nhận. */
+/** Mỗi key có một lượt gọi riêng để không vượt giới hạn 60 giây của Netlify. */
+async function requestWithKeyFailover(endpoint: string, input: AuditInput, currentAnalysis?: string, onText?: (text: string) => void, signal?: AbortSignal): Promise<AiResponse> {
+  let attemptedKeySlots: number[] = [];
+  for (;;) {
+    if (signal?.aborted) throw new AiResponseError("Đã dừng phân tích.", "connection");
+    const res = await fetch(endpoint, {
+      method: "POST", headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ...input, attemptedKeySlots }), signal,
+    });
+    try {
+      return await readAiResponse(res, currentAnalysis, onText);
+    } catch (error) {
+      const next = error instanceof AiResponseError ? error.nextKeyAttempts : undefined;
+      if (!Array.isArray(next) || next.length <= attemptedKeySlots.length || next.length > MAX_AUDIT_KEY_ATTEMPTS
+        || next.some((slot, index) => !Number.isInteger(slot) || slot < 0 || slot >= MAX_AUDIT_KEY_ATTEMPTS
+          || (index < attemptedKeySlots.length && slot !== attemptedKeySlots[index]))) throw error;
+      attemptedKeySlots = next;
+      onText?.("");
+    }
+  }
+}
+
+export async function requestAiRefinement(endpoint: string, input: AuditInput, onText?: (text: string) => void, signal?: AbortSignal): Promise<AiResponse> {
+  try {
+    return await requestWithKeyFailover(endpoint, input, input.currentAnalysis, onText, signal);
+  } catch (error) {
+    if (error instanceof AiResponseError) throw error;
+    throw new AiResponseError("Không kết nối được máy chủ. Vui lòng thử lại.", "connection");
+  }
+}
+
+/** Báo lỗi khi mọi key đã thất bại; báo cáo thành công không bị gọi lại. */
 export async function requestAiAudit(endpoint: string, input: AuditInput, onText?: (text: string) => void, signal?: AbortSignal): Promise<string> {
   let lastDraft = "";
   onText?.("");
   let analysis: string;
   try {
-    const res = await fetch(endpoint, {
-      method: "POST", headers: { "Content-Type": "application/json" }, body: JSON.stringify(input), signal,
-    });
-    ({ analysis } = await readAiResponse(res, undefined, text => { lastDraft = text; onText?.(text); }));
+    ({ analysis } = await requestWithKeyFailover(endpoint, input, undefined, text => { lastDraft = text; onText?.(text); }, signal));
   } catch (error) {
     if (error instanceof AiResponseError) {
       error.draft ||= lastDraft;

@@ -19,7 +19,7 @@ SERPAPI_KEY=...              # https://serpapi.com — lấy dữ liệu Google 
 GOOGLE_AI_STUDIO_API_KEY=... # https://aistudio.google.com — chạy thẩm định AI
 ```
 
-### Nhiều key SerpAPI & Google AI Studio (xoay key tự động khi 429)
+### Nhiều key SerpAPI & Google AI Studio
 
 Cả `SERPAPI_KEY` và `GOOGLE_AI_STUDIO_API_KEY` đều hỗ trợ nhiều key với 2 cách khai báo:
 
@@ -42,8 +42,10 @@ Cách xoay (`src/lib/key-pool.ts`):
 
 - Dùng **cạn từng key** theo thứ tự, không rải đều — hạn mức tính theo tổng lượt
   nên dùng hết key 1 rồi mới sang key 2 thì dễ theo dõi hơn.
-- Key báo hết hạn mức bị **ném xuống cuối hàng đợi** và cho nghỉ **24h**; request
-  đang dở tự thử lại ngay bằng key kế tiếp nên người dùng không thấy lỗi.
+- Key báo hết hạn mức bị **ném xuống cuối hàng đợi** và cho nghỉ **24h**; với
+  Gemini, giao diện tự gửi yêu cầu mới bằng key kế tiếp.
+- Với Gemini, lỗi 401/403, 5xx, mất kết nối, phản hồi thiếu hoặc hết thời gian
+  chờ cũng chuyển sang key kế tiếp. Lỗi 5xx/timeout không phạt key.
 - Bị *throttle* (gửi quá nhanh) chỉ nghỉ **1 phút** — đó không phải hết hạn mức.
 - Lỗi không thuộc về key (ví dụ `data_id` sai, SerpAPI 500) **không** làm key bị
   phạt, tránh chuyện một truy vấn lỗi đốt sạch cả bốn key.
@@ -53,7 +55,7 @@ Cách xoay (`src/lib/key-pool.ts`):
 - Xem còn mấy key sống: `GET /api/key-status` — trả nhãn đã che (`#2…a1b2`), lý do
   nghỉ và giờ mở lại. Không bao giờ trả key thật.
 
-Khi cả bốn key đều nghỉ, API trả 429 kèm câu nói rõ giờ hạn mức mở lại.
+Khi mọi key đều nghỉ, API trả 429; xem `/api/key-status` để biết lúc key mở lại.
 
 ## Luồng hoạt động
 
@@ -69,8 +71,10 @@ Khi cả bốn key đều nghỉ, API trả 429 kèm câu nói rõ giờ hạn m
    Gemini, trả báo cáo tiếng Việt dành cho chủ nhà hàng và đội sales. Giao diện chỉ gọi
    API Next.js cùng website; không dùng `NEXT_PUBLIC_AI_ANALYSIS_URL` hoặc gọi Edge.
    `GOOGLE_AI_STUDIO_API_KEY` được đọc ở máy chủ Next.js.
-   Mỗi thao tác gọi Gemini một lần, đầu ra Markdown theo prompt gọn. Không có lượt
-   kiểm chứng hoặc thử lại tự động; giữ contract SSE/JSON với frontend.
+   Mỗi key có một request riêng, tối đa 55 giây để hoàn thành; khi key lỗi, giao
+   diện tự chuyển sang key chưa thử. Chỉ báo lỗi khi mọi key khả dụng đều thất bại.
+   Next.js trả SSE cho cả báo cáo và chat; từng mảnh chữ từ Gemini được chuyển
+   thẳng tới giao diện. Đầu ra Markdown theo prompt gọn.
 4. **Xuất PDF** — nút "Xuất PDF" trên báo cáo mở cửa sổ xem trước A4 thương
    hiệu GoDine (logo ở `public/logo.png`, tiêu đề "Audit Google Business
    Profile Report") → bấm "In / Lưu PDF" → chọn *Save as PDF*. Trình dựng
@@ -83,7 +87,7 @@ src/
   app/
     api/autocomplete/route.ts      # gợi ý địa điểm (SerpAPI)
     api/business-profile/route.ts  # hồ sơ đầy đủ + chuẩn hóa schema
-    api/ai-analysis/route.ts       # thẩm định AI (Gemini, có fallback)
+    api/ai-analysis/route.ts       # thẩm định AI (Gemini, hỗ trợ nhiều key)
     layout.tsx                     # fonts (Archivo · Be Vietnam Pro · IBM Plex Mono)
     page.tsx                       # tìm kiếm + bố cục hồ sơ
   components/
@@ -97,9 +101,10 @@ trực tiếp trước mặt chủ quán khi tư vấn.
 
 ## Quy tắc thẩm định
 
-- Mỗi lần bấm phân tích hoặc gửi chat: **một request ứng dụng, một request Gemini**.
-  Dùng `gemini-flash-latest`, suy luận thấp, tối đa 55 giây; Next maxDuration60.
-  Không reviewer, schema đầu ra, tự retry hoặc đổi model dự phòng.
+- Mỗi lần bấm phân tích hoặc gửi chat thử từng key cho đến khi thành công hoặc
+  hết key khả dụng. Mỗi request Next chỉ gọi Gemini bằng một key, tối đa 55 giây;
+  một thao tác có thể kéo dài hơn một phút. Dùng model ổn định `gemini-3.5-flash`,
+  suy luận thấp; Next maxDuration60. Không reviewer, schema đầu ra hoặc đổi model.
 - Prompt ngắn gửi bằng `systemInstruction`: tư vấn theo bằng chứng, địa giới sau sắp xếp 2025,
   Text Menu có ví dụ thực tế, điểm 0–10, sáu mục Markdown và phân biệt tư liệu với chỉ dẫn.
   Không có dữ liệu không đồng nghĩa quán thiếu; không tự bịa món, giá hoặc tác động SEO.
@@ -121,9 +126,9 @@ trực tiếp trước mặt chủ quán khi tư vấn.
 - UI không đánh giá lại report bằng regex tiêu đề/giá/menu. Khi API hoàn tất và có
   nội dung, hiển thị/lưu bản nhận được. Report khác tiêu đề không gây request thứ hai,
   lỗi “thiếu mục Text Menu” hoặc ép phân tích lại bộ nhớ đã lưu.
-- Vẫn báo lỗi HTTP, response rỗng, model bị ngắt hoặc SSE thiếu DONE; không biến
-  gián đoạn thật thành thành công. Thử lại do người dùng chọn.
-- Chat nhận JSON ở Next hoặc SSE ở Edge; ưu tiên updatedAnalysis, cập nhật cùng một
+- HTTP lỗi, response rỗng hoặc model bị ngắt sẽ thử key kế tiếp; SSE thiếu DONE
+  do kết nối ứng dụng bị gián đoạn vẫn là lỗi thật. Không biến lỗi thành thành công.
+- Chat nhận SSE ở Next; bộ đọc vẫn hiểu JSON cũ. Ưu tiên updatedAnalysis, cập nhật cùng một
   report trên UI, lịch sử, bộ nhớ và HTML in. Lỗi giữ bản trước; hủy khi đổi quán.
 - Điểm được nhận diện để hiển thị, không chia100/clamp để sửa sai; không nhận diện
   được thì ẩn badge, không tự gọi lại model. Nội dung report không bị thay bằng lỗi biên tập.
@@ -156,8 +161,8 @@ Không xem kết quả của tám quán ngoài phạm vi này là đã nghiệm 
 
 Chỉ khi được phép chạy live ở phiên khác: app tại `127.0.0.1:3107`,
 `node tests/live-e2e.cjs --live --resume`. Runner chỉ chạy ba mẫu, dừng khi một mẫu lỗi,
-không tự retry ở runner hoặc service. Chạy không tham số sẽ không gọi API.
-Mỗi mẫu tối đa hai yêu cầu ứng dụng (tạo/sửa), mỗi yêu cầu gọi Gemini đúng một lần. `--discover` chỉ thu thập hồ sơ
+không tự retry ở runner. Chạy không tham số sẽ không gọi API.
+Một lần tạo/sửa có thể phát sinh nhiều request ứng dụng khi chuyển key. `--discover` chỉ thu thập hồ sơ
 qua SerpAPI khi cần; không tự sinh báo cáo. **Phiên 15/09 đã dừng mọi lượt Gemini theo yêu cầu.**
 
 `node tests/browser-server.cjs` mở máy chủ QA loopback `127.0.0.1:3109`, dùng UI thật
