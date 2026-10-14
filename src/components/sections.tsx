@@ -598,7 +598,7 @@ export function SimilarSection({
 
 export type AiState =
   | { status: "idle" }
-  | { status: "loading" }
+  | { status: "loading"; message?: string }
   | { status: "streaming"; analysis: string }
   | { status: "done"; analysis: string }
   | { status: "error"; message: string; analysis?: string };
@@ -685,8 +685,9 @@ export function AiAuditSection({
 
         {state.status === "loading" && (
           <div className="space-y-3 p-5">
-            <p className="wide font-mono text-[0.68rem] uppercase tracking-[0.18em] text-soft">
-              Đang phân tích hồ sơ…
+            <p className="wide font-mono text-[0.68rem] uppercase tracking-[0.18em] text-moss-deep flex items-center gap-2">
+              <span className="h-2 w-2 animate-pulse rounded-full bg-moss-deep" />
+              {state.message || "Đang phân tích hồ sơ…"}
             </p>
             <div className="skeleton h-4 w-3/4" />
             <div className="skeleton h-4 w-full" />

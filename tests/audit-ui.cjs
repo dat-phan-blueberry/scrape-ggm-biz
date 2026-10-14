@@ -10,10 +10,10 @@ const failed = render({ status: "error", message: "Báo cáo thiếu điểm h�
 assert.ok(failed.includes("Nội dung đã nhận của nhà hàng."));
 assert.ok(failed.includes("Báo cáo thiếu điểm hợp lệ."));
 assert.ok(!failed.includes("Xuất PDF"));
-assert.ok(!failed.includes("/10 cạnh tranh"));
-const complete = render({ status: "done", analysis: "## Điểm cạnh tranh: 0/10" });
+assert.ok(!failed.includes("/100 sức khỏe GBP"));
+const complete = render({ status: "done", analysis: "## Điểm sức khỏe hồ sơ: 0/100" });
 assert.ok(complete.includes("Xuất PDF"));
-assert.ok(complete.includes("/10 cạnh tranh"));
+assert.ok(complete.includes("/100 sức khỏe GBP"));
 assert.ok(!complete.includes("Chưa hoàn tất thẩm định"));
 const streaming = render({ status: "streaming", analysis: "Báo cáo đang được nhận." });
 assert.ok(streaming.includes("Báo cáo đang được nhận."));

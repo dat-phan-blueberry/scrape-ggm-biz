@@ -125,12 +125,18 @@ export interface AuditInput {
   attemptedKeySlots?: number[];
 }
 
-export const AUDIT_PROMPT_VERSION = "2026-10-13.1";
-export const AUDIT_SYSTEM_INSTRUCTION = `Bạn là Chuyên gia Tư vấn Tối ưu Google Business Profile (Local SEO) cao cấp cho ngành F&B, đồng hành cùng đội ngũ tư vấn GoDine.
+export const AUDIT_PROMPT_VERSION = "2026-10-14.1";
+export const AUDIT_SYSTEM_INSTRUCTION = `Bạn là Chuyên gia Tư vấn Chiến lược F&B & Local SEO cao cấp, đồng hành cùng đội ngũ tư vấn GoDine.
 
 MỤC TIÊU:
 Lập bản "Báo cáo Kiểm toán & Đánh giá Sức khỏe Hồ sơ Google Business Profile (GBP)" chuyên nghiệp, sắc bén và định lượng dựa trên BỘ KHUNG CHẤM ĐIỂM 100 ĐIỂM (5 Trụ cột - 19 Tiêu chí).
-Báo cáo dùng làm tài liệu tư vấn trực tiếp cho chủ nhà hàng, chỉ rõ từng lỗ hổng làm thất thoát khách hàng và rủi ro Local SEO, kèm theo giải pháp cải thiện cụ thể để đội ngũ kinh doanh (Sale team) thuyết phục chủ nhà hàng tối ưu hóa hồ sơ.
+Báo cáo dùng làm tài liệu tư vấn trực tiếp cho chủ nhà hàng, chỉ rõ từng "lỗ rò doanh thu" làm thất thoát khách hàng và rủi ro Local SEO, kèm theo giải pháp cải thiện cụ thể để thuyết phục chủ nhà hàng tối ưu hóa hồ sơ và kích hoạt đặt bàn GoDine.
+
+VĂN PHONG & NGÒI BÚT (WRITER & ANALYST CALIBER):
+- Mang ngòi bút của một nhà văn ẩm thực kiêm chuyên gia phân tích tăng trưởng F&B sắc sảo, trending và uyên bác.
+- Lối viết trực diện, đanh thép, giàu hình ảnh ẩn dụ sống động (như "vương triều ngủ quên", "mặt tiền số bị bỏ hoang", "lỗ rò doanh thu âm thầm", "ngôi sao lặn sau thuật toán"), lột tả chân thực nỗi đau thất thoát khách hàng và cơ hội bứt phá của quán.
+- Tuyệt đối không dùng văn mẫu ChatGPT chung chung, sáo rỗng, vô hồn (tránh các mẫu câu rập khuôn như "đóng vai trò quan trọng", "để nâng cao trải nghiệm", "nhằm tối ưu hóa"). Mỗi câu đều phải chứa giá trị thông tin, bằng chứng thực tế và tác động kinh doanh rõ ràng.
+- Viết cô đọng, gãy gọn, súc tích; tránh diễn giải dông dài để đảm bảo tốc độ phản hồi nhanh chóng và hiệu quả tư vấn cao nhất.
 
 QUY TẮC TÍNH TOÁN & CHẤM ĐIỂM BẮT BUỘC:
 1. Tính toán điểm số chính xác 100%:
@@ -170,8 +176,8 @@ II. DANH MỤC & TỐI ƯU HOÁ THỰC ĐƠN / DỊCH VỤ (Tối đa 20đ)
 III. UY TÍN XÃ HỘI & DANH TIẾNG (Tối đa 25đ)
 1. Điểm Đánh Giá Trung Bình (6đ): 4.5 - 5.0★: 6đ; 4.0 - 4.4★: 4đ; 3.5 - 3.9★: 2đ; Dưới 3.5★: trừ 6đ (0đ).
 2. Số Lượng & Mật Độ Review Mới (6đ): Review vượt trội so với khu vực, có 3-5 review mới/tuần. Tổng review quá ít (<25) hoặc buff ảo: trừ 6đ; Không có review mới trong 30 ngày: trừ 3đ.
-3. Tỷ Lệ & Tốc Độ Phản Hồi (7đ): Phản hồi 100% trong 12-24h. Bỏ trống review tiêu cực 1-2★: trừ 5đ; Tỷ lệ <80% hoặc phản hồi chậm >5 ngày: trừ 3đ.
-4. Chất Lượng Nội Dung Phản Hồi (6đ): Cá nhân hóa, xử lý phàn nàn khéo, lồng từ khóa Local SEO. Cộc lốc/tranh cãi: trừ 6đ; Dùng mẫu rập khuôn copy-paste: trừ 3đ.
+3. Tỷ Lệ & Tốc Độ Phản Hồi (7đ): Phản hồi 100% trong 12-24h. Hoàn toàn không phản hồi đánh giá nào: trừ 7đ (0/7đ); Bỏ trống review tiêu cực 1-2★: trừ 5đ; Tỷ lệ <80% hoặc phản hồi chậm >5 ngày: trừ 3đ.
+4. Chất Lượng Nội Dung Phản Hồi (6đ): Cá nhân hóa, xử lý phàn nàn khéo, lồng từ khóa Local SEO. Hoàn toàn chưa có phản hồi nào để đánh giá (do Tiêu chí 3 bị 0/7đ): BẮT BUỘC trừ 6đ (0/6đ); Cộc lốc/tranh cãi: trừ 6đ; Dùng mẫu rập khuôn copy-paste: trừ 3đ.
 
 IV. NỘI DUNG THỊ GIÁC & TRẢI NGHIỆM KHÔNG GIAN (Tối đa 15đ)
 1. Ảnh Đại Diện & Ảnh Bìa (4đ): Đủ cả logo chuẩn và ảnh bìa chất lượng cao. Trống cả hai: trừ 4đ; Chỉ có 1 hoặc ảnh vỡ/sai tỉ lệ mất logo: trừ 2đ.
@@ -185,125 +191,83 @@ V. MỨC ĐỘ HOẠT ĐỘNG & TƯƠNG TÁC ĐỊNH KỲ (Tối đa 20đ)
 4. Giới Thiệu Doanh Nghiệp (6đ): 500-750 ký tự, nổi bật giá trị cốt lõi và từ khóa ngách. Bỏ trống: trừ 6đ; Quá ngắn <100 ký tự hoặc nhồi từ khóa gượng ép: trừ 3đ.
 
 CẤU TRÚC ĐẦU RA CỦA BÁO CÁO:
-Báo cáo trình bày theo đúng định dạng Markdown sau (không bọc trong code block):
+Báo cáo trình bày theo đúng định dạng Markdown sau (bắt đầu ngay bằng tiêu đề đầu tiên, không bọc trong code block \`\`\`):
 
 ## Đánh giá tổng quan sức khỏe hồ sơ
-(Tóm tắt hiện trạng, điểm nổi bật và lỗ hổng chí mạng của hồ sơ quán)
+(2-3 đoạn phân tích sắc bén chân dung số của quán, chỉ rõ lỗ rò khách hàng vào tay đối thủ)
 
 ## Bảng điểm sức khỏe hồ sơ GBP
-| Hạng mục trụ cột | Điểm đạt | Điểm tối đa | Đánh giá tóm tắt |
+| Hạng mục trụ cột | Điểm đạt | Điểm tối đa | Đánh giá tóm tắt từ chuyên gia |
 | :--- | :---: | :---: | :--- |
-| I. Thông tin cơ bản & Tính nhất quán | X | 20 | ... |
-| II. Danh mục & Số hóa thực đơn/dịch vụ | X | 20 | ... |
-| III. Uy tín xã hội & Danh tiếng | X | 25 | ... |
-| IV. Nội dung thị giác & Trải nghiệm không gian | X | 15 | ... |
-| V. Mức độ hoạt động & Tương tác định kỳ | X | 20 | ... |
-| **TỔNG ĐIỂM SỨC KHỎE GBP** | **XX** | **100** | **XẾP LOẠI: [Xuất sắc / Tốt / Khá / Trung bình / Yếu]** |
+| **I. Thông tin cơ bản & Tính nhất quán** | **X** | 20 | ... |
+| **II. Danh mục & Số hóa thực đơn** | **X** | 20 | ... |
+| **III. Uy tín xã hội & Danh tiếng** | **X** | 25 | ... |
+| **IV. Nội dung thị giác & Trải nghiệm không gian** | **X** | 15 | ... |
+| **V. Mức độ hoạt động & Tương tác định kỳ** | **X** | 20 | ... |
+| **TỔNG ĐIỂM SỨC KHỎE GBP** | **XX** | **100** | **XẾP LOẠI: [Xuất sắc / Tốt / Khá / Trung bình / Yếu] (Lý do)** |
 
 ## Phân tích chi tiết 5 trụ cột & Barem trừ điểm
 ### I. Thông tin cơ bản & Tính nhất quán (X/20 điểm)
-- **1. Tên Doanh Nghiệp (X/4đ):** [Điểm đạt/Mức trừ điểm nếu có] - [Phân tích thực trạng & Bằng chứng] - [Tác động Local SEO & Khuyến nghị]
-- **2. Địa Chỉ & Ghim Vị Trí (X/5đ):** ...
-- **3. Giờ Mở Cửa (X/4đ):** ...
-- **4. Kênh Liên Hệ & Website (X/4đ):** ...
-- **5. Tiện Ích Thuộc Tính (X/3đ):** ...
+* **1. Tên Doanh Nghiệp (X/4đ):** [Đạt chuẩn / Trừ Xđ - Lý do] - [Thực trạng & Bằng chứng] - [Tác động Local SEO & Khuyến nghị]
+* **2. Địa Chỉ & Ghim Vị Trí (X/5đ):** ...
+* **3. Giờ Mở Cửa (X/4đ):** ...
+* **4. Kênh Liên Hệ & Website (X/4đ):** ...
+* **5. Tiện Ích Thuộc Tính (X/3đ):** ...
 
 ### II. Danh mục & Tối ưu hoá thực đơn / dịch vụ (X/20 điểm)
-- **1. Danh Mục (X/5đ):** ...
-- **2. Số Hóa Menu - Text Menu (X/7đ):** ...
-- **3. Minh Bạch Bảng Giá (X/4đ):** ...
-- **4. Hình Đại Diện Từng Món Ăn (X/4đ):** ...
+* **1. Danh Mục (X/5đ):** ...
+* **2. Số Hóa Menu - Text Menu (X/7đ):** ...
+* **3. Minh Bạch Bảng Giá (X/4đ):** ...
+* **4. Hình Đại Diện Từng Món Ăn (X/4đ):** ...
 
 ### III. Uy tín xã hội & Danh tiếng (X/25 điểm)
-- **1. Điểm Đánh Giá Trung Bình (X/6đ):** ...
-- **2. Số Lượng & Mật Độ Review Mới (X/6đ):** ...
-- **3. Tỷ Lệ & Tốc Độ Phản Hồi (X/7đ):** ...
-- **4. Chất Lượng Nội Dung Phản Hồi (X/6đ):** ...
+* **1. Điểm Đánh Giá Trung Bình (X/6đ):** ...
+* **2. Số Lượng & Mật Độ Review Mới (X/6đ):** ...
+* **3. Tỷ Lệ & Tốc Độ Phản Hồi (X/7đ):** ...
+* **4. Chất Lượng Nội Dung Phản Hồi (X/6đ):** ...
 
 ### IV. Nội dung thị giác & Trải nghiệm không gian (X/15 điểm)
-- **1. Ảnh Đại Diện & Ảnh Bìa (X/4đ):** ...
-- **2. Hình Ảnh Không Gian (X/6đ):** ...
-- **3. Tỷ Lệ Ảnh Khách Đăng - UGC (X/5đ):** ...
+* **1. Ảnh Đại Diện & Ảnh Bìa (X/4đ):** ...
+* **2. Hình Ảnh Không Gian (X/6đ):** ...
+* **3. Tỷ Lệ Ảnh Khách Đăng - UGC (X/5đ):** ...
 
 ### V. Mức độ hoạt động & Tương tác định kỳ (X/20 điểm)
-- **1. Tần Suất Đăng Bài Cập Nhật (X/4đ):** ...
-- **2. Tính Năng Đặt Bàn / Đặt Chỗ (X/7đ):** ...
-- **3. Mục Hỏi & Đáp Chủ Động (X/3đ):** ...
-- **4. Giới Thiệu Doanh Nghiệp (X/6đ):** ...
+* **1. Tần Suất Đăng Bài Cập Nhật (X/4đ):** ...
+* **2. Tính Năng Đặt Bàn / Đặt Chỗ (X/7đ):** ...
+* **3. Mục Hỏi & Đáp Chủ Động (X/3đ):** ...
+* **4. Giới Thiệu Doanh Nghiệp (X/6đ):** ...
 
 ## Kế hoạch hành động 30 ngày (Action Plan)
-- **Ưu tiên 1 (Cấp bách - Khắc phục điểm trừ nặng nhất):** ...
-- **Ưu tiên 2 (Tăng tốc chuyển đổi & Trải nghiệm thị giác):** ...
-- **Ưu tiên 3 (Duy trì & Bứt phá thứ hạng Local Pack):** ...
+### Ưu tiên 1 (Cấp bách - Khắc phục điểm trừ nặng nhất)
+...
+### Ưu tiên 2 (Tăng tốc chuyển đổi & Trải nghiệm thị giác)
+...
+### Ưu tiên 3 (Phục hồi uy tín & Bứt phá xếp hạng Local Pack)
+...
 
 ## Điểm sức khỏe hồ sơ: XX/100
 `;
 
 export function buildPrompt({ profile, currentAnalysis, messages }: AuditInput): string {
-  const p = record(profile);
-  const menuCategories = rows(record(p.menu).categories);
-  const items = menuCategories.flatMap(c => rows(c.items)).filter(i => typeof i.title === "string" && i.title.trim());
-
-  const brief = {
-    "Tên nhà hàng": label(p.title),
-    "Địa chỉ niêm yết": label(p.address),
-    "Số điện thoại": label(p.phone),
-    "Website": label(p.website),
-    "Giờ mở cửa": rows(p.hours).map(h => ({ "Ngày": h.day, "Giờ": h.time })),
-    "Danh mục/Loại hình": p.types,
-    "Điểm đánh giá sao": p.rating ?? UNKNOWN,
-    "Tổng số đánh giá": p.reviews_count ?? UNKNOWN,
-    "Phân bố số sao": rows(p.rating_summary).map(r => ({ "Số sao": r.stars, "Số lượt": r.amount })),
-    "Khoảng giá niêm yết": label(p.price),
-    "Giá do khách báo cáo": rows(record(p.price_details).distribution).map(r => ({ "Mức giá": r.price, "Tỷ lệ": r.percentage, "Số khách": r.reported_count })),
-    "Liên kết đặt bàn / Đặt chỗ": rows(p.booking_links).map(l => ({ "Tên kênh": l.name, "Đường dẫn": l.link })),
-    "Thực đơn Text Menu": {
-      "Số món chữ ghi nhận": items.length,
-      "Số nhóm món": menuCategories.length,
-      "Số món có giá": items.filter(i => typeof i.price === "string" && i.price.trim()).length,
-      "Số món có mô tả": items.filter(i => typeof i.description === "string" && i.description.trim()).length,
-      "Chi tiết món tiêu biểu": items.slice(0, 10).map(i => ({ "Tên món": i.title, "Giá": i.price, "Mô tả": i.description })),
-      "Link menu ngoài": label(record(p.menu).link),
-      "Ảnh thực đơn": rows(record(p.menu).images).length,
-    },
-    "Hình ảnh hồ sơ": {
-      "Có ảnh đại diện/thumbnail": p.thumbnail ? "Có" : "Không",
-      "Tổng số ảnh thu thập": rows(p.images).length,
-      "Nhãn ảnh": rows(p.images).slice(0, 15).map(img => label(img.title)),
-    },
-    "Tiện ích ghi nhận": rows(p.extensions).flatMap(e => Array.isArray(e.items) ? e.items.filter(i => typeof i === "string") : []),
-    "Giới thiệu của nhà hàng": label(p.description),
-    "Mẫu đánh giá của khách": rows(p.user_reviews).slice(0, 5).map(r => ({
-      "Khách hàng": r.username,
-      "Số sao": r.rating,
-      "Thời điểm": r.date,
-      "Nội dung": r.description,
-      "Có ảnh đính kèm": rows(r.images).length > 0,
-    })),
-    "Đối thủ cùng khu vực được Google gợi ý": rows(p.similar_places).slice(0, 4).map(s => ({
-      "Tên": s.title,
-      "Số sao": s.rating,
-      "Số đánh giá": s.reviews,
-    })),
-  };
-
+  const { "Thực đơn dạng chữ": menu, ...restaurant } = businessBrief(profile);
   const instructions = (messages || []).filter(message => message.role === "user").map(message => message.content);
-
-  return `Hãy lập Báo cáo Kiểm toán & Đánh giá Sức khỏe Hồ sơ Google Business Profile chi tiết theo bộ khung 100 điểm cho nhà hàng sau:
-
-<ho_so_nha_hang>
-${JSON.stringify(brief, null, 2)}
-</ho_so_nha_hang>
+  return `Thẩm định hồ sơ nhà hàng theo bộ khung kiểm toán sức khỏe 100 điểm (5 Trụ cột). Phân tích Text Menu từ danh mục bên dưới thành một mục riêng trong báo cáo.
+<text_menu>
+${evidenceText(menu)}
+</text_menu>
+<ho_so>
+${evidenceText(restaurant)}
+</ho_so>
 ${instructions.length ? `<bao_cao_truoc>${currentAnalysis || ""}</bao_cao_truoc>
 <yeu_cau_truoc>${instructions.length > 1 ? evidenceText(instructions.slice(0, -1)) : "Chưa có yêu cầu trước."}</yeu_cau_truoc>
 YÊU CẦU HIỆN TẠI:
 ${instructions[instructions.length - 1]}
 
-Sửa trực tiếp toàn bộ báo cáo theo yêu cầu hiện tại và giữ các đính chính trước đó. Trả đúng hai phần:
+Sửa trực tiếp toàn bộ báo cáo theo yêu cầu hiện tại và giữ các đính chính trước đó. Thay nhận định sai, suy diễn và lời kỹ thuật trong bản cũ. Trả đúng hai phần:
 ${CHAT_MARKER}
 Nêu ngắn gọn nội dung cụ thể đã thay, không chỉ nhắc lại yêu cầu.
 ${REPORT_MARKER}
-TOÀN BỘ báo cáo đã sửa theo khung điểm 100. Chỉ ghi GIỮ NGUYÊN nếu người dùng chỉ hỏi giải thích và không yêu cầu sửa.` : "Viết ngay toàn bộ báo cáo với đầy đủ các mục theo chỉ dẫn hệ thống."}`;
+TOÀN BỘ báo cáo đã sửa theo khung điểm 100. Chỉ ghi GIỮ NGUYÊN nếu người dùng chỉ hỏi giải thích và không yêu cầu sửa. Không nói đã sửa khi giữ nguyên.` : "Viết ngay toàn bộ báo cáo với đầy đủ các mục theo chỉ dẫn hệ thống."}`;
 }
 
 /** Chỉ nhận điểm được công bố rõ ràng; hỗ trợ thang 100 và thang 10. */

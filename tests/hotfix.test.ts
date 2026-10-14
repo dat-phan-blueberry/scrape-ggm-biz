@@ -1,7 +1,7 @@
-import { AuditError, generateAudit } from "../supabase/functions/_shared/audit-service.ts";
-import { handleAuditRequest } from "../supabase/functions/ai-analysis/handler.ts";
+import { AuditError, generateAudit, AUDIT_MODEL } from "../src/lib/audit/audit-service.ts";
+import { handleAuditRequest } from "../src/lib/audit/handler.ts";
 import { AiResponseError, requestAiAudit, readAiResponse } from "../src/lib/ai-response.ts";
-import { AUDIT_PROMPT_VERSION, AUDIT_SYSTEM_INSTRUCTION, buildPrompt } from "../supabase/functions/_shared/audit.ts";
+import { AUDIT_PROMPT_VERSION, AUDIT_SYSTEM_INSTRUCTION, buildPrompt } from "../src/lib/audit/audit.ts";
 
 function equal(actual: unknown, expected: unknown) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);
@@ -25,7 +25,7 @@ Deno.test("Hotfix: một thao tác UI → Edge → Gemini, nhận report khác t
       equal(response.headers.get("X-Audit-Prompt-Version"), AUDIT_PROMPT_VERSION);
       return response;
     }
-    equal(String(url), "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse");
+    equal(String(url), `https://generativelanguage.googleapis.com/v1beta/models/${AUDIT_MODEL}:streamGenerateContent?alt=sse`);
     modelCalls++;
     const body = JSON.parse(String(options?.body));
     equal(body.generationConfig.responseSchema, undefined);
@@ -116,11 +116,9 @@ Deno.test("Hotfix: chat JSON/SSE nhận bản sửa khác tiêu đề, không đ
   equal((await readAiResponse(new Response(stream, { headers: { "Content-Type": "text/event-stream" } }), report)).analysis, updated);
 });
 
-Deno.test("Hotfix: prompt gọn, giữ quy tắc địa giới, Text Menu, điểm và chat", () => {
+Deno.test("Hotfix: prompt đầy đủ 5 trụ cột, Text Menu, 100 điểm và chat", () => {
   const prompt = buildPrompt({ profile: {}, currentAnalysis: report, messages: [{ role: "user", content: "Rút ngắn" }] });
-  equal(AUDIT_SYSTEM_INSTRUCTION.length < 2200, true);
-  for (const rule of ["Quảng Nam và Đà Nẵng", "Hội An/An Bàng hiện thuộc thành phố Đà Nẵng", "Text Menu", "0 đến 10", "Thiếu dữ liệu", "**Tên món:**", "**Giá và khẩu phần:**", "**Mô tả món:**", "**Nhóm món:**"]) equal(AUDIT_SYSTEM_INSTRUCTION.includes(rule), true);
-  equal(AUDIT_SYSTEM_INSTRUCTION.split("\n").filter(line => line.startsWith("## ")).length, 6);
+  for (const rule of ["Text Menu", "100 ĐIỂM", "5 Trụ cột", "Bảng điểm sức khỏe hồ sơ GBP", "Kế hoạch hành động 30 ngày"]) equal(AUDIT_SYSTEM_INSTRUCTION.includes(rule), true);
   equal(prompt.includes("TOÀN BỘ báo cáo đã sửa"), true);
   equal(prompt.includes("Trả JSON"), false);
 });

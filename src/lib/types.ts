@@ -1,5 +1,5 @@
-import { AUDIT_VERSION } from "../../supabase/functions/_shared/audit.ts";
-export { parseAndValidateScore, cleanBusinessReportText, reportValidationError, splitRefinement } from "../../supabase/functions/_shared/audit.ts";
+import { AUDIT_VERSION } from "./audit/audit.ts";
+export { parseAndValidateScore, cleanBusinessReportText, reportValidationError, splitRefinement } from "./audit/audit.ts";
 /** Một gợi ý từ SerpAPI google_maps_autocomplete */
 export interface Suggestion {
   value: string;

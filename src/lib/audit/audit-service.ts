@@ -1,6 +1,9 @@
 import { AUDIT_SYSTEM_INSTRUCTION, MAX_AUDIT_KEY_ATTEMPTS, buildPrompt, cleanBusinessReportText, type AuditInput } from "./audit.ts";
 
-const MODEL = "gemini-3.5-flash";
+declare const Deno: { env: { get(name: string): string | undefined } } | undefined;
+
+export const AUDIT_MODEL = (typeof Deno !== "undefined" ? Deno.env.get("GEMINI_MODEL") : (typeof process !== "undefined" ? process.env?.GEMINI_MODEL : undefined)) || "gemini-flash-lite-latest";
+export const AI_TIMEOUT_MS = Number(typeof Deno !== "undefined" ? Deno.env.get("AI_TIMEOUT_MS") : (typeof process !== "undefined" ? process.env?.AI_TIMEOUT_MS : undefined)) || 10 * 60 * 1000;
 export class AuditError extends Error {
   constructor(message: string, public status = 502, public retryAfterSeconds?: number, public nextKeyAttempts?: number[]) { super(message); }
 }
@@ -99,8 +102,6 @@ async function readGeminiStream(res: Response, onDelta: (text: string) => void):
   return result;
 }
 
-const CANDIDATE_MODELS = ["gemini-flash-latest", "gemini-3.5-flash-lite", "gemini-3.8-flash", "gemini-3.5-flash"];
-
 export async function generateAudit(apiKeyOrPool: string | KeyPoolLike, input: AuditInput, signal?: AbortSignal, onDelta?: (text: string) => void): Promise<string> {
   if (signal?.aborted) throw new AuditError("Đã dừng phân tích.", 499);
   const pool = toPool(apiKeyOrPool);
@@ -109,78 +110,90 @@ export async function generateAudit(apiKeyOrPool: string | KeyPoolLike, input: A
   const lease = pool.acquire(new Set(attempted));
   if (!lease) throw new AuditError("Các key phân tích hiện không dùng được. Vui lòng thử lại sau.", 429);
   const tried = [...attempted, lease.slot ?? attempted.length];
-  const timeout = AbortSignal.timeout(55_000);
+  const nextAttempts = pool.size > tried.length ? tried : undefined;
+  const timeout = AbortSignal.timeout(AI_TIMEOUT_MS);
   const combinedSignal = signal ? AbortSignal.any([signal, timeout]) : timeout;
 
   const action = onDelta ? "streamGenerateContent?alt=sse" : "generateContent";
-  let lastFailure: AuditError | null = null;
 
-  for (const model of CANDIDATE_MODELS) {
-    try {
-      const res = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/${model}:${action}`, {
-        method: "POST",
-        headers: { "Content-Type": "application/json", "x-goog-api-key": lease.key },
-        signal: combinedSignal,
-        body: JSON.stringify({
-          systemInstruction: { parts: [{ text: AUDIT_SYSTEM_INSTRUCTION }] },
-          contents: [{ role: "user", parts: [{ text: buildPrompt(input) }] }],
-          generationConfig: { temperature: 0.25, maxOutputTokens: 8192, thinkingConfig: { thinkingLevel: "low" } },
-        }),
-      });
+  const gatewayUrl = (typeof Deno !== "undefined" ? Deno.env.get("AI_GATEWAY_URL") : (typeof process !== "undefined" ? process.env?.AI_GATEWAY_URL : undefined))?.trim();
+  const gatewayKey = (typeof Deno !== "undefined" ? Deno.env.get("AI_GATEWAY_KEY") : (typeof process !== "undefined" ? process.env?.AI_GATEWAY_KEY : undefined))?.trim();
 
-      if (!res.ok) {
-        const failure = await res.json().catch(() => null);
-        const detail = Array.isArray(failure?.error?.details) ? failure.error.details.find((d: { retryDelay?: string }) => d?.retryDelay) : undefined;
-        const seconds = Number.parseFloat(res.headers.get("retry-after") || detail?.retryDelay || "");
-        const retryAfter = Number.isFinite(seconds) ? Math.max(0, seconds) : undefined;
-        const period = quotaPeriod(failure);
-        const label = lease.label || `#${(lease.slot ?? 0) + 1}`;
-        console.warn(`[audit] model ${model} key ${label} HTTP ${res.status}; quota period=${period}`);
+  const serviceName = (typeof Deno !== "undefined" ? Deno.env.get("AI_SERVICE_NAME") : (typeof process !== "undefined" ? process.env?.AI_SERVICE_NAME : undefined))?.trim() || "godine-audit";
 
-        if (res.status === 503 || res.status === 404) {
-          // Model quá tải hoặc không khả dụng -> Thử model dự phòng tiếp theo
-          continue;
-        }
+  const targetUrl = gatewayUrl
+    ? `${gatewayUrl.replace(/\/+$/, "")}/v1/gemini/${AUDIT_MODEL}/${action}`
+    : `https://generativelanguage.googleapis.com/v1beta/models/${AUDIT_MODEL}:${action}`;
 
-        if (res.status === 429) {
-          const penaltyReason = period === "minute" ? "rate" : "quota";
-          pool.penalize?.(lease, penaltyReason, retryAfter ? retryAfter * 1000 : undefined);
-          throw new AuditError("Dịch vụ phân tích đang giới hạn lượt gọi. Vui lòng đợi rồi thử lại.", 429, retryAfter);
-        }
-
-        if (res.status === 401 || res.status === 403) {
-          pool.penalize?.(lease, "invalid");
-          throw new AuditError("Dịch vụ phân tích chưa được cấp quyền truy cập.", res.status);
-        }
-
-        throw new AuditError("Dịch vụ phân tích đang bận. Vui lòng thử lại.", res.status, retryAfter);
-      }
-
-      if (onDelta) {
-        const text = await readGeminiStream(res, onDelta);
-        pool.reportSuccess?.(lease);
-        return text;
-      }
-      const data = await res.json();
-      const candidate = data.candidates?.[0];
-      const text = cleanBusinessReportText((candidate?.content?.parts || [])
-        .filter((part: { text?: string; thought?: boolean }) => typeof part.text === "string" && !part.thought)
-        .map((part: { text: string }) => part.text).join("\n"));
-      if (!text) throw new AuditError("Không nhận được nội dung báo cáo.");
-      if (candidate.finishReason !== "STOP") throw new AuditError("Báo cáo bị ngắt trước khi hoàn tất. Vui lòng thử lại.");
-
-      pool.reportSuccess?.(lease);
-      return text;
-    } catch (err) {
-      if (err instanceof AuditError) {
-        lastFailure = err;
-        if (err.status === 429 || err.status === 401 || err.status === 403) throw err;
-      }
-    }
+  const targetHeaders: Record<string, string> = { "Content-Type": "application/json" };
+  if (gatewayUrl) {
+    if (gatewayKey) targetHeaders["x-api-key"] = gatewayKey;
+    targetHeaders["x-service-name"] = serviceName;
+  } else {
+    targetHeaders["x-goog-api-key"] = lease.key;
   }
 
-  if (lastFailure) throw lastFailure;
-  throw new AuditError("Dịch vụ phân tích hiện đang quá tải. Vui lòng thử lại.", 503);
+  try {
+    const res = await fetch(targetUrl, {
+      method: "POST",
+      headers: targetHeaders,
+      signal: combinedSignal,
+      body: JSON.stringify({
+        systemInstruction: { parts: [{ text: AUDIT_SYSTEM_INSTRUCTION }] },
+        contents: [{ role: "user", parts: [{ text: buildPrompt(input) }] }],
+        generationConfig: { temperature: 0.25, thinkingConfig: { thinkingLevel: "high" } },
+      }),
+    });
+
+    if (!res.ok) {
+      const failure = await res.json().catch(() => null);
+      const detail = Array.isArray(failure?.error?.details) ? failure.error.details.find((d: { retryDelay?: string }) => d?.retryDelay) : undefined;
+      const seconds = Number.parseFloat(res.headers.get("retry-after") || detail?.retryDelay || "");
+      const retryAfter = Number.isFinite(seconds) ? Math.max(0, seconds) : undefined;
+      const period = quotaPeriod(failure);
+      const label = lease.label || `#${(lease.slot ?? 0) + 1}`;
+      console.warn(`[audit] model ${AUDIT_MODEL} key ${label} HTTP ${res.status}; quota period=${period}`);
+
+      if (res.status === 429) {
+        const penaltyReason = period === "minute" ? "rate" : "quota";
+        pool.penalize?.(lease, penaltyReason, retryAfter ? retryAfter * 1000 : undefined);
+        throw new AuditError("Dịch vụ phân tích đang giới hạn lượt gọi. Vui lòng đợi rồi thử lại.", 429, retryAfter, nextAttempts);
+      }
+
+      if (res.status === 401 || res.status === 403) {
+        pool.penalize?.(lease, "invalid");
+        throw new AuditError("Dịch vụ phân tích chưa được cấp quyền truy cập.", res.status, undefined, nextAttempts);
+      }
+
+      throw new AuditError("Dịch vụ phân tích đang bận. Vui lòng thử lại.", res.status, retryAfter, nextAttempts);
+    }
+
+    if (onDelta) {
+      const text = await readGeminiStream(res, onDelta);
+      pool.reportSuccess?.(lease);
+      return text;
+    }
+    const data = await res.json();
+    const candidate = data.candidates?.[0];
+    const text = cleanBusinessReportText((candidate?.content?.parts || [])
+      .filter((part: { text?: string; thought?: boolean }) => typeof part.text === "string" && !part.thought)
+      .map((part: { text: string }) => part.text).join("\n"));
+    if (!text) throw new AuditError("Không nhận được nội dung báo cáo.", 502, undefined, nextAttempts);
+    if (candidate?.finishReason !== "STOP") throw new AuditError("Báo cáo bị ngắt trước khi hoàn tất. Vui lòng thử lại.", 502, undefined, nextAttempts);
+
+    pool.reportSuccess?.(lease);
+    return text;
+  } catch (err) {
+    if (err instanceof AuditError) {
+      if (err.nextKeyAttempts === undefined && nextAttempts !== undefined) {
+        err.nextKeyAttempts = nextAttempts;
+      }
+      throw err;
+    }
+    if (signal?.aborted) throw new AuditError("Đã dừng phân tích.", 499);
+    if (timeout.aborted) throw new AuditError("Thời gian phân tích quá lâu. Vui lòng thử lại sau.", 504, undefined, nextAttempts);
+    throw new AuditError("Không kết nối được dịch vụ phân tích.", 502, undefined, nextAttempts);
+  }
 }
 
 export function auditEventStream(apiKeyOrPool: string | KeyPoolLike, input: AuditInput, signal?: AbortSignal) {
@@ -193,7 +206,7 @@ export function auditEventStream(apiKeyOrPool: string | KeyPoolLike, input: Audi
     async start(controller) {
       const send = (event: string) => { if (!closed) controller.enqueue(encoder.encode(event)); };
       send(": ping\n\n");
-      timer = setInterval(() => send(": ping\n\n"), 10_000);
+      timer = setInterval(() => send(": ping\n\n"), 5_000);
       try {
         await generateAudit(apiKeyOrPool, input, combined, delta => send(`data: ${JSON.stringify({ text: delta })}\n\n`));
       } catch (error) {

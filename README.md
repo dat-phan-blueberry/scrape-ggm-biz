@@ -141,7 +141,6 @@ Kiểm tra cục bộ (không gọi Gemini thật):
 deno test --no-config --allow-env tests/audit.test.ts tests/hotfix.test.ts tests/audit-evidence.test.ts tests/stream-completion.test.ts
 node tests/audit-ui.cjs
 node tests/audit-next.cjs
-deno check --no-config supabase/functions/ai-analysis/index.ts
 npm run build
 ```
 

@@ -1,5 +1,7 @@
-import { auditEventStream, parseAuditInput } from "../_shared/audit-service.ts";
-import { AUDIT_PROMPT_VERSION } from "../_shared/audit.ts";
+import { auditEventStream, parseAuditInput } from "./audit-service.ts";
+import { AUDIT_PROMPT_VERSION } from "./audit.ts";
+
+declare const Deno: { env: { get(name: string): string | undefined } } | undefined;
 
 const CORS: Record<string, string> = {
   "Access-Control-Allow-Origin": "*",
@@ -14,7 +16,7 @@ function jsonResponse(obj: unknown, status: number) {
 export async function handleAuditRequest(req: Request) {
   if (req.method === "OPTIONS") return new Response("ok", { headers: CORS });
   if (req.method !== "POST") return jsonResponse({ error: "Method not allowed" }, 405);
-  const apiKey = Deno.env.get("GOOGLE_AI_STUDIO_API_KEY")?.trim();
+  const apiKey = (typeof Deno !== "undefined" ? Deno.env.get("GOOGLE_AI_STUDIO_API_KEY") : process.env.GOOGLE_AI_STUDIO_API_KEY)?.trim();
   if (!apiKey) return jsonResponse({ error: "Máy chủ chưa cấu hình dịch vụ phân tích." }, 500);
   const input = parseAuditInput(await req.json().catch(() => null));
   if (!input) return jsonResponse({ error: "Dữ liệu hồ sơ hoặc trao đổi không hợp lệ." }, 400);

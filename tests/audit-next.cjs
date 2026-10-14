@@ -1,7 +1,8 @@
 const assert = require("node:assert/strict");
 require("./register.cjs");
 const { POST } = require("../src/app/api/ai-analysis/route.ts");
-const { AUDIT_PROMPT_VERSION, AUDIT_SYSTEM_INSTRUCTION, CHAT_MARKER, REPORT_MARKER } = require("../supabase/functions/_shared/audit.ts");
+const { AUDIT_PROMPT_VERSION, AUDIT_SYSTEM_INSTRUCTION, CHAT_MARKER, REPORT_MARKER } = require("../src/lib/audit/audit.ts");
+const { AUDIT_MODEL, AI_TIMEOUT_MS } = require("../src/lib/audit/audit-service.ts");
 const { readAiResponse, requestAiAudit, requestAiRefinement } = require("../src/lib/ai-response.ts");
 const { getAiEndpoint } = require("../src/lib/ai-config.ts");
 
@@ -33,7 +34,7 @@ const streamed = text => {
   for (const chat of [false, true]) {
     let calls = 0;
     globalThis.fetch = async (url, options) => {
-      assert.equal(String(url), "https://generativelanguage.googleapis.com/v1beta/models/gemini-3.5-flash:streamGenerateContent?alt=sse");
+      assert.equal(String(url), `https://generativelanguage.googleapis.com/v1beta/models/${AUDIT_MODEL}:streamGenerateContent?alt=sse`);
       calls++;
       const body = JSON.parse(options.body);
       assert.deepEqual(body.systemInstruction, { parts: [{ text: AUDIT_SYSTEM_INSTRUCTION }] });
@@ -235,8 +236,8 @@ const streamed = text => {
     try {
       assert.equal(await requestAiAudit("http://local.test/api/ai-analysis", { profile }), newReport);
       assert.deepEqual(attempts, keys);
-      assert.deepEqual(waits, [55_000, 55_000]);
-      console.log("PASS Timeout: mỗi key có 55 giây, key kế tiếp được thử qua request mới.");
+      assert.deepEqual(waits, [AI_TIMEOUT_MS, AI_TIMEOUT_MS]);
+      console.log("PASS Timeout: mỗi key có thời gian chờ cấu hình, key kế tiếp được thử qua request mới.");
     } finally { AbortSignal.timeout = originalTimeout; }
   }
 })().catch(error => { console.error(error); process.exitCode = 1; }).finally(() => {

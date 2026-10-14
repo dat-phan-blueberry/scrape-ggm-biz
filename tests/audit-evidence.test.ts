@@ -1,4 +1,4 @@
-import { buildPrompt } from "../supabase/functions/_shared/audit.ts";
+import { buildPrompt } from "../src/lib/audit/audit.ts";
 
 function contains(text: string, values: string[]) {
   for (const value of values) if (!text.includes(value)) throw new Error(`Thiếu tư liệu: ${value}`);

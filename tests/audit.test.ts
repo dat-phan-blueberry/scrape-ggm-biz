@@ -1,9 +1,9 @@
-import { AUDIT_SYSTEM_INSTRUCTION, businessBrief, buildPrompt, cleanBusinessReportText, parseAndValidateScore, reportValidationError, responseValidationError, splitRefinement, evidenceValidationError } from "../supabase/functions/_shared/audit.ts";
-import { AuditError, auditEventStream, generateAudit, quotaPeriod } from "../supabase/functions/_shared/audit-service.ts";
+import { AUDIT_SYSTEM_INSTRUCTION, businessBrief, buildPrompt, cleanBusinessReportText, parseAndValidateScore, reportValidationError, responseValidationError, splitRefinement, evidenceValidationError } from "../src/lib/audit/audit.ts";
+import { AuditError, auditEventStream, generateAudit, quotaPeriod } from "../src/lib/audit/audit-service.ts";
 import { AiResponseError, completedReportError, completedRefinementError, readAiResponse, requestAiAudit } from "../src/lib/ai-response.ts";
-import { decodeAuditOutput } from "../supabase/functions/_shared/audit-format.ts";
+import { decodeAuditOutput } from "../src/lib/audit/audit-format.ts";
 import { normalizeMenu } from "../src/lib/menu.ts";
-import { reviewCorrection } from "../supabase/functions/_shared/audit-review.ts";
+import { reviewCorrection } from "../src/lib/audit/audit-review.ts";
 
 function equal(actual: unknown, expected: unknown) {
   if (JSON.stringify(actual) !== JSON.stringify(expected)) throw new Error(`Expected ${JSON.stringify(expected)}, got ${JSON.stringify(actual)}`);

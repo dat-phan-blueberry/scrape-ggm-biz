@@ -4,7 +4,7 @@ const React = require('react');
 const { renderToStaticMarkup } = require('react-dom/server');
 const { MarkdownLite } = require('../src/components/ui.tsx');
 const { completedReportError, completedRefinementError } = require('../src/lib/ai-response.ts');
-const { parseAndValidateScore } = require('../supabase/functions/_shared/audit.ts');
+const { parseAndValidateScore } = require('../src/lib/audit/audit.ts');
 const { buildAuditReportHtml } = require('../src/lib/report-html.ts');
 const read = (name, fallback) => fs.existsSync(`tests/results/${name}`) ? JSON.parse(fs.readFileSync(`tests/results/${name}`, 'utf8')) : fallback;
 const cohort = read('venues.json', []).filter(v => v.profile.types.some(t => /nhà hàng|quán bia|nhà máy bia/i.test(t)));

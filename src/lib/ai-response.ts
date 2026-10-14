@@ -1,4 +1,4 @@
-import { MAX_AUDIT_KEY_ATTEMPTS, splitRefinement, type AuditInput } from "../../supabase/functions/_shared/audit.ts";
+import { MAX_AUDIT_KEY_ATTEMPTS, splitRefinement, type AuditInput } from "./audit/audit.ts";
 
 export class AiResponseError extends Error {
   constructor(message: string, public kind: "connection" | "response" | "validation", public draft = "", public retryAfterSeconds?: number, public status?: number, public nextKeyAttempts?: number[]) {

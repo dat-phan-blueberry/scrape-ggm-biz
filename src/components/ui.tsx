@@ -284,9 +284,17 @@ interface MdListItem {
   subs: string[];
 }
 
+interface MdTable {
+  headers: string[];
+  aligns: Array<"left" | "center" | "right">;
+  rows: string[][];
+}
+
 export function MarkdownLite({ text }: { text: string }) {
   const blocks: React.ReactNode[] = [];
   let list: { ordered: boolean; start: number; items: MdListItem[] } | null = null;
+  let table: MdTable | null = null;
+  let pendingTableHeader: string[] | null = null;
   let key = 0;
 
   const bulletLi = (content: string, i: number, keyBase: string) => (
@@ -325,18 +333,94 @@ export function MarkdownLite({ text }: { text: string }) {
     list = null;
   };
 
+  const flushTable = () => {
+    if (pendingTableHeader) {
+      blocks.push(
+        <p key={key++} className="my-2">
+          {inlineMd(pendingTableHeader.join(" | "), `p-${key}`)}
+        </p>
+      );
+      pendingTableHeader = null;
+    }
+    if (!table) return;
+    const cur = table;
+    table = null;
+    blocks.push(
+      <div key={key++} className="my-3 overflow-x-auto rounded-lg border border-border/70 bg-card/60">
+        <table className="w-full border-collapse text-left text-[0.8rem]">
+          <thead>
+            <tr className="border-b border-border/70 bg-field/60">
+              {cur.headers.map((h, hi) => {
+                const align = cur.aligns[hi] || "left";
+                const alignClass = align === "center" ? "text-center" : align === "right" ? "text-right" : "text-left";
+                return (
+                  <th key={hi} className={`px-3 py-2 font-display text-[0.74rem] font-bold uppercase tracking-wider text-moss-deep ${alignClass}`}>
+                    {inlineMd(h, `th-${key}-${hi}`)}
+                  </th>
+                );
+              })}
+            </tr>
+          </thead>
+          <tbody className="divide-y divide-border/40">
+            {cur.rows.map((row, ri) => (
+              <tr key={ri} className="transition-colors hover:bg-field/20">
+                {row.map((cell, ci) => {
+                  const align = cur.aligns[ci] || "left";
+                  const alignClass = align === "center" ? "text-center" : align === "right" ? "text-right" : "text-left";
+                  return (
+                    <td key={ci} className={`px-3 py-2 text-ink/80 ${alignClass}`}>
+                      {inlineMd(cell, `td-${key}-${ri}-${ci}`)}
+                    </td>
+                  );
+                })}
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+    );
+  };
+
   for (const rawLine of text.split("\n")) {
     const line = rawLine.trim();
     if (!line) {
-      // dòng trống không ngắt danh sách số — Gemini hay chèn dòng trống giữa các mục
       if (!list?.ordered) flushList();
+      if (table || pendingTableHeader) flushTable();
       continue;
     }
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) {
-      // kẻ ngang: bỏ qua, các heading đã tự phân tách
       flushList();
+      if (table || pendingTableHeader) flushTable();
       continue;
     }
+
+    const isTableRow = /^\|(.+)\|$/.test(line);
+    if (isTableRow) {
+      flushList();
+      const cells = line.slice(1, -1).split("|").map(c => c.trim());
+      const isSep = cells.every(c => /^:?-+:?$/.test(c));
+      if (isSep && pendingTableHeader) {
+        const aligns = cells.map(c => {
+          const left = c.startsWith(":");
+          const right = c.endsWith(":");
+          if (left && right) return "center";
+          if (right) return "right";
+          return "left";
+        });
+        table = { headers: pendingTableHeader, aligns, rows: [] };
+        pendingTableHeader = null;
+        continue;
+      }
+      if (table) {
+        table.rows.push(cells);
+        continue;
+      }
+      if (pendingTableHeader) flushTable();
+      pendingTableHeader = cells;
+      continue;
+    }
+    if (table || pendingTableHeader) flushTable();
+
     const heading = line.match(/^(#{2,4})\s+(.*)$/);
     if (heading) {
       flushList();
@@ -353,7 +437,6 @@ export function MarkdownLite({ text }: { text: string }) {
     }
     const bullet = line.match(/^[-*]\s+(.*)$/);
     if (bullet) {
-      // bullet ngay sau mục số = ý con của mục đó
       if (list?.ordered && list.items.length > 0) {
         list.items[list.items.length - 1].subs.push(bullet[1]);
       } else {
@@ -379,6 +462,7 @@ export function MarkdownLite({ text }: { text: string }) {
     );
   }
   flushList();
+  flushTable();
 
   return <div className="text-[0.875rem] leading-relaxed text-ink/85">{blocks}</div>;
 }

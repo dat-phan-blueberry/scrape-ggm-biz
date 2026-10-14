@@ -3,7 +3,7 @@ require('./register.cjs');
 require('@next/env').loadEnvConfig(process.cwd());
 const fs = require('node:fs');
 const { getAiApiKey } = require('../src/lib/ai-config.ts');
-const { generateAudit, quotaPeriod } = require('../supabase/functions/_shared/audit-service.ts');
+const { generateAudit, quotaPeriod } = require('../src/lib/audit/audit-service.ts');
 const venues = JSON.parse(fs.readFileSync('tests/results/venues.json', 'utf8')).filter(v => v.profile.types.some(t => /nhà hàng|quán bia|nhà máy bia/i.test(t)));
 const index = Number(process.argv[2]);
 if (!Number.isInteger(index) || !venues[index]) throw new Error('Cần chỉ số nhà hàng trong cohort, từ 0 đến 10.');

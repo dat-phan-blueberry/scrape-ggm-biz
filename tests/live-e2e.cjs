@@ -10,7 +10,7 @@ require("@next/env").loadEnvConfig(path.resolve(__dirname, ".."));
 const { getAuthUsers } = require("../src/lib/auth.ts");
 const { readAiResponse, completedReportError, completedRefinementError } = require("../src/lib/ai-response.ts");
 const { buildAuditReportHtml } = require("../src/lib/report-html.ts");
-const { AUDIT_VERSION } = require("../supabase/functions/_shared/audit.ts");
+const { AUDIT_VERSION } = require("../src/lib/audit/audit.ts");
 const base = "http://127.0.0.1:3107";
 const dir = path.join(__dirname, "results");
 fs.mkdirSync(dir, { recursive: true });

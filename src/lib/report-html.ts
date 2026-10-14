@@ -51,9 +51,17 @@ interface MdListItem {
   subs: string[];
 }
 
+interface HtmlTable {
+  headers: string[];
+  aligns: Array<"left" | "center" | "right">;
+  rows: string[][];
+}
+
 function markdownToHtml(md: string): string {
   const out: string[] = [];
   let list: { ordered: boolean; start: number; items: MdListItem[] } | null = null;
+  let table: HtmlTable | null = null;
+  let pendingTableHeader: string[] | null = null;
 
   const renderItem = (it: MdListItem) =>
     `<li>${inlineMd(it.text)}${
@@ -69,17 +77,59 @@ function markdownToHtml(md: string): string {
     list = null;
   };
 
+  const flushTable = () => {
+    if (pendingTableHeader) {
+      out.push(`<p>${inlineMd(pendingTableHeader.join(" | "))}</p>`);
+      pendingTableHeader = null;
+    }
+    if (!table) return;
+    const cur = table;
+    table = null;
+    const thead = `<thead><tr>${cur.headers.map((h, i) => `<th style="text-align:${cur.aligns[i] || 'left'}">${inlineMd(h)}</th>`).join("")}</tr></thead>`;
+    const tbody = `<tbody>${cur.rows.map(r => `<tr>${r.map((c, i) => `<td style="text-align:${cur.aligns[i] || 'left'}">${inlineMd(c)}</td>`).join("")}</tr>`).join("")}</tbody>`;
+    out.push(`<div class="table-wrap"><table>${thead}${tbody}</table></div>`);
+  };
+
   for (const rawLine of md.split("\n")) {
     const line = escapeHtml(rawLine.trim());
     if (!line) {
-      // dòng trống không ngắt danh sách số — Gemini hay chèn dòng trống giữa các mục
       if (!list?.ordered) flushList();
+      if (table || pendingTableHeader) flushTable();
       continue;
     }
     if (/^(-{3,}|\*{3,}|_{3,})$/.test(line)) {
       flushList();
+      if (table || pendingTableHeader) flushTable();
       continue;
     }
+
+    const isTableRow = /^\|(.+)\|$/.test(line);
+    if (isTableRow) {
+      flushList();
+      const cells = line.slice(1, -1).split("|").map(c => c.trim());
+      const isSep = cells.every(c => /^:?-+:?$/.test(c));
+      if (isSep && pendingTableHeader) {
+        const aligns = cells.map(c => {
+          const left = c.startsWith(":");
+          const right = c.endsWith(":");
+          if (left && right) return "center";
+          if (right) return "right";
+          return "left";
+        });
+        table = { headers: pendingTableHeader, aligns, rows: [] };
+        pendingTableHeader = null;
+        continue;
+      }
+      if (table) {
+        table.rows.push(cells);
+        continue;
+      }
+      if (pendingTableHeader) flushTable();
+      pendingTableHeader = cells;
+      continue;
+    }
+    if (table || pendingTableHeader) flushTable();
+
     const heading = line.match(/^(#{2,4})\s+(.*)$/);
     if (heading) {
       flushList();
@@ -88,7 +138,6 @@ function markdownToHtml(md: string): string {
     }
     const bullet = line.match(/^[-*]\s+(.*)$/);
     if (bullet) {
-      // bullet ngay sau mục số = ý con của mục đó
       if (list?.ordered && list.items.length > 0) {
         list.items[list.items.length - 1].subs.push(bullet[1]);
       } else {
@@ -110,6 +159,7 @@ function markdownToHtml(md: string): string {
     out.push(`<p>${inlineMd(line)}</p>`);
   }
   flushList();
+  flushTable();
   return out.join("\n");
 }
 
@@ -237,6 +287,15 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
     font: 500 .85em "IBM Plex Mono", monospace;
     background: var(--chip); border-radius: 3px; padding: .5pt 3pt;
   }
+  .report .table-wrap { margin: 4mm 0; overflow-x: auto; }
+  .report table { width: 100%; border-collapse: collapse; font-size: 8pt; margin: 2mm 0; display: table !important; }
+  .report thead { display: table-header-group !important; }
+  .report tbody { display: table-row-group !important; }
+  .report tr { display: table-row !important; }
+  .report th, .report td { border: .4pt solid var(--line); padding: 2mm 2.5mm; text-align: left; display: table-cell !important; vertical-align: top; }
+  .report th { background: #f0f4f0; font-family: "Be Vietnam Pro", sans-serif; font-weight: 700; color: var(--orange-deep); font-size: 7.5pt; text-transform: uppercase; letter-spacing: .05em; }
+  .report td { color: var(--ink); }
+  .report tr:nth-child(even) td { background: #fafbfa; }
 
   .foot {
     margin-top: 9mm; padding-top: 3.5mm; border-top: .4pt solid var(--line);
@@ -248,7 +307,7 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
      Nhờ đó @page margin = 0 → Chrome không còn chỗ in header/footer mặc định
      (dòng tiêu đề + URL trên lề giấy). Trên màn hình khung này vô hình. */
   .frame { width: 100%; border-collapse: collapse; }
-  .frame, .frame > thead, .frame > tbody, .frame > tfoot, .frame tr, .frame td { display: block; }
+  .frame, .frame > thead, .frame > tbody, .frame > tfoot, .frame > tbody > tr, .frame > tbody > tr > td { display: block; }
   .frame > thead, .frame > tfoot { display: none; }
 
   @page { size: A4; margin: 0; }
@@ -272,8 +331,8 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
     .frame > thead { display: table-header-group; }
     .frame > tbody { display: table-row-group; }
     .frame > tfoot { display: table-footer-group; }
-    .frame tr { display: table-row; }
-    .frame td { display: table-cell; }
+    .frame > tbody > tr, .frame > thead > tr, .frame > tfoot > tr { display: table-row; }
+    .frame > tbody > tr > td, .frame > thead > tr > td, .frame > tfoot > tr > td { display: table-cell; }
     .frame-space { height: 10mm; }
     .sheet { max-width: none; margin: 0; padding: 0 13mm; box-shadow: none; }
   }
@@ -314,7 +373,7 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
       </div>
       ${
         validatedScore
-          ? `<div class="score-pill"><div class="num">${escapeHtml(validatedScore)}<span style="font-size:9pt">/100</span></div><div class="cap">sức khỏe GBP</div></div>`
+          ? `<div class="score-pill"><div class="num">${escapeHtml(validatedScore)}<span style="font-size:9pt">${Number(validatedScore) <= 10 && !cleanAnalysis.includes("/100") ? "/10" : "/100"}</span></div><div class="cap">sức khỏe GBP</div></div>`
           : ""
       }
     </header>

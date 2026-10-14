@@ -1,11 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { getGoogleAiKeyPool } from "@/lib/key-pool";
-import { AUDIT_PROMPT_VERSION } from "../../../../supabase/functions/_shared/audit";
-import { auditEventStream, parseAuditInput } from "../../../../supabase/functions/_shared/audit-service";
+import { AUDIT_PROMPT_VERSION } from "@/lib/audit/audit";
+import { auditEventStream, parseAuditInput } from "@/lib/audit/audit-service";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
-export const maxDuration = 60;
+export const maxDuration = 300;
 
 export async function POST(request: NextRequest) {
   const pool = getGoogleAiKeyPool();

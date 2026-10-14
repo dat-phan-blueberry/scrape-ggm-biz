@@ -3,6 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AiResponseError, completedRefinementError, requestAiAudit, requestAiRefinement, refinementPreview } from "@/lib/ai-response";
 import { getAiEndpoint } from "@/lib/ai-config";
+import { ensureGatewayAwake } from "@/lib/ai-wake";
 import {
   type BusinessProfile,
   type ChatMessage,
@@ -236,9 +237,33 @@ export default function HomePage() {
     const controller = new AbortController();
     auditAbortRef.current = controller;
     const targetDataId = profile.data_id || lastFetchRef.current?.dataId;
-    setAi({ status: "streaming", analysis: "" });
     setChatMessages([]);
     setSaveWarning("");
+
+    // 1. Kiểm tra trạng thái thức của dịch vụ AI:
+    // Nếu lần healthcheck trước < 5 phút -> Khỏi call healthcheck lại (trả về true ngay)
+    // Nếu >= 5 phút hoặc lần đầu -> Loading "Đang đánh thức dịch vụ" -> Timeout 10s, retry 5 lần
+    setAi({ status: "loading", message: "Đang đánh thức dịch vụ…" });
+
+    const isAwake = await ensureGatewayAwake((msg) => {
+      if (!controller.signal.aborted) {
+        setAi({ status: "loading", message: msg });
+      }
+    }, controller.signal);
+
+    if (controller.signal.aborted) return;
+
+    if (!isAwake) {
+      setAi({
+        status: "error",
+        message: "Không thể đánh thức dịch vụ AI sau 5 lần thử. Vui lòng kiểm tra kết nối và thử lại.",
+      });
+      auditAbortRef.current = null;
+      return;
+    }
+
+    // 2. Khi healthcheck ok -> Call thẳng, xong!
+    setAi({ status: "streaming", analysis: "" });
     const endpoint = getAiEndpoint();
     try {
       const analysis = await requestAiAudit(endpoint, { profile }, (text) => {
@@ -283,6 +308,23 @@ export default function HomePage() {
       setIsRefining(true);
       setRefinementDraft("");
       setSaveWarning("");
+
+      const isAwake = await ensureGatewayAwake(undefined, controller.signal);
+      if (!isAwake || controller.signal.aborted) {
+        if (!controller.signal.aborted) {
+          setIsRefining(false);
+          const errorMsg: ChatMessage = {
+            id: `model-${Date.now()}`,
+            role: "model",
+            content: "Không thể đánh thức dịch vụ phân tích AI. Vui lòng thử lại sau.",
+            timestamp: Date.now(),
+            outcome: "error",
+          };
+          setChatMessages([...updatedMessages, errorMsg]);
+        }
+        if (auditAbortRef.current === controller) auditAbortRef.current = null;
+        return;
+      }
 
       const endpoint = getAiEndpoint();
 
