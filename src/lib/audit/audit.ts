@@ -125,7 +125,7 @@ export interface AuditInput {
   attemptedKeySlots?: number[];
 }
 
-export const AUDIT_PROMPT_VERSION = "2026-10-14.1";
+export const AUDIT_PROMPT_VERSION = "2026-10-21.1";
 export const AUDIT_SYSTEM_INSTRUCTION = `Bạn là Chuyên gia Tư vấn Chiến lược F&B & Local SEO cao cấp, đồng hành cùng đội ngũ tư vấn GoDine.
 
 MỤC TIÊU:
@@ -137,6 +137,7 @@ VĂN PHONG & NGÒI BÚT (WRITER & ANALYST CALIBER):
 - Lối viết trực diện, đanh thép, giàu hình ảnh ẩn dụ sống động (như "vương triều ngủ quên", "mặt tiền số bị bỏ hoang", "lỗ rò doanh thu âm thầm", "ngôi sao lặn sau thuật toán"), lột tả chân thực nỗi đau thất thoát khách hàng và cơ hội bứt phá của quán.
 - Tuyệt đối không dùng văn mẫu ChatGPT chung chung, sáo rỗng, vô hồn (tránh các mẫu câu rập khuôn như "đóng vai trò quan trọng", "để nâng cao trải nghiệm", "nhằm tối ưu hóa"). Mỗi câu đều phải chứa giá trị thông tin, bằng chứng thực tế và tác động kinh doanh rõ ràng.
 - Viết cô đọng, gãy gọn, súc tích; tránh diễn giải dông dài để đảm bảo tốc độ phản hồi nhanh chóng và hiệu quả tư vấn cao nhất.
+- BỐ CỤC THOÁNG & NGẮT ĐOẠN RÕ RÀNG (BẮT BUỘC): Tuyệt đối KHÔNG viết dồn nhiều câu thành một khối văn bản dài đặc chữ ("1 cục"). Mỗi đoạn văn chỉ từ 2–3 câu ngắn (tối đa 50–70 chữ) và BẮT BUỘC phải xuống dòng cách đoạn (có dòng trống ở giữa). Ở phần phân tích 19 tiêu chí, bắt buộc tách các ý (Thực trạng, Tác động & Khuyến nghị) xuống dòng thành các gạch đầu dòng con thụt lề thay vì viết nối dài trên cùng một dòng.
 
 QUY TẮC TÍNH TOÁN & CHẤM ĐIỂM BẮT BUỘC:
 1. Tính toán điểm số chính xác 100%:
@@ -194,7 +195,11 @@ CẤU TRÚC ĐẦU RA CỦA BÁO CÁO:
 Báo cáo trình bày theo đúng định dạng Markdown sau (bắt đầu ngay bằng tiêu đề đầu tiên, không bọc trong code block \`\`\`):
 
 ## Đánh giá tổng quan sức khỏe hồ sơ
-(2-3 đoạn phân tích sắc bén chân dung số của quán, chỉ rõ lỗ rò khách hàng vào tay đối thủ)
+(Đoạn 1 — 2 câu ngắn: Khái quát vị thế thương hiệu, điểm sáng uy tín và lượng đánh giá thực tế hiện có của nhà hàng.)
+
+(Đoạn 2 — 2-3 câu ngắn: Chỉ rõ các "lỗ rò doanh thu" và điểm mù chí mạng trên mặt tiền số GBP đang âm thầm đẩy thực khách vào tay đối thủ.)
+
+(Đoạn 3 — 1-2 câu ngắn: Kết luận mức độ cấp thiết cần chuẩn hóa Local SEO và kích hoạt điểm chạm đặt bàn trực tuyến GoDine.)
 
 ## Bảng điểm sức khỏe hồ sơ GBP
 | Hạng mục trụ cột | Điểm đạt | Điểm tối đa | Đánh giá tóm tắt từ chuyên gia |
@@ -208,8 +213,12 @@ Báo cáo trình bày theo đúng định dạng Markdown sau (bắt đầu ngay
 
 ## Phân tích chi tiết 5 trụ cột & Barem trừ điểm
 ### I. Thông tin cơ bản & Tính nhất quán (X/20 điểm)
-* **1. Tên Doanh Nghiệp (X/4đ):** [Đạt chuẩn / Trừ Xđ - Lý do] - [Thực trạng & Bằng chứng] - [Tác động Local SEO & Khuyến nghị]
-* **2. Địa Chỉ & Ghim Vị Trí (X/5đ):** ...
+* **1. Tên Doanh Nghiệp (X/4đ):** [Đạt chuẩn / Trừ Xđ — Lý do ngắn gọn]
+  - **Thực trạng:** [Bằng chứng ghi nhận từ hồ sơ]
+  - **Tác động & Khuyến nghị:** [Ảnh hưởng Local SEO và hành động cụ thể]
+* **2. Địa Chỉ & Ghim Vị Trí (X/5đ):** [Đạt chuẩn / Trừ Xđ — Lý do ngắn gọn]
+  - **Thực trạng:** ...
+  - **Tác động & Khuyến nghị:** ...
 * **3. Giờ Mở Cửa (X/4đ):** ...
 * **4. Kênh Liên Hệ & Website (X/4đ):** ...
 * **5. Tiện Ích Thuộc Tính (X/3đ):** ...
@@ -239,11 +248,14 @@ Báo cáo trình bày theo đúng định dạng Markdown sau (bắt đầu ngay
 
 ## Kế hoạch hành động 30 ngày (Action Plan)
 ### Ưu tiên 1 (Cấp bách - Khắc phục điểm trừ nặng nhất)
-...
+* **[Hạng mục hành động 1]:** [Chi tiết triển khai ngắn gọn, tách dòng riêng từng việc]
+* **[Hạng mục hành động 2]:** ...
 ### Ưu tiên 2 (Tăng tốc chuyển đổi & Trải nghiệm thị giác)
-...
+* **[Hạng mục hành động 1]:** ...
+* **[Hạng mục hành động 2]:** ...
 ### Ưu tiên 3 (Phục hồi uy tín & Bứt phá xếp hạng Local Pack)
-...
+* **[Hạng mục hành động 1]:** ...
+* **[Hạng mục hành động 2]:** ...
 
 ## Điểm sức khỏe hồ sơ: XX/100
 `;
@@ -306,6 +318,114 @@ function plainHeading(line: string): string {
 
 export function cleanBusinessReportText(text: string): string {
   return text.replace(/\u00a0/g, " ").trim();
+}
+
+const SENTENCE_ABBREVS = /(?:^|\s)(?:TP|P|Q|TT|TX|QL|TL|ĐT|Mr|Ms|Mrs|Dr|St|No|ThS|TS|BS|GS|PGS|vs|VD)\s*$/i;
+
+/** Tách câu tiếng Việt an toàn, không cắt nhầm số thập phân, viết tắt (TP., P., Q.) hoặc số thứ tự. */
+export function splitReportSentences(text: string): string[] {
+  const result: string[] = [];
+  let start = 0;
+  for (let i = 0; i < text.length; i++) {
+    const ch = text[i];
+    if (ch === "." || ch === "!" || ch === "?") {
+      let j = i + 1;
+      while (
+        j < text.length &&
+        (text[j] === '"' || text[j] === "”" || text[j] === "'" || text[j] === ")" || text[j] === "*" || text[j] === "]")
+      ) {
+        j++;
+      }
+      if (j < text.length && /\s/.test(text[j])) {
+        const before = text.slice(start, i);
+        if (SENTENCE_ABBREVS.test(before)) continue;
+        if (/^\s*(?:\*\*)?(?:\d+|[IVX]+)$/i.test(before)) continue;
+        let k = j;
+        while (k < text.length && /\s/.test(text[k])) k++;
+        const nextChar = text[k] || "";
+        if (/^[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ"“*\[(-]/.test(nextChar)) {
+          result.push(text.slice(start, j).trim());
+          start = k;
+          i = k - 1;
+        }
+      }
+    }
+  }
+  const tail = text.slice(start).trim();
+  if (tail) result.push(tail);
+  return result;
+}
+
+/** Tách đoạn văn quá dài ("1 cục") thành các đoạn ngắn 1–2 câu dễ đọc. */
+export function splitLongParagraph(line: string): string[] {
+  const trimmed = line.trim();
+  if (trimmed.length <= 200) return [trimmed];
+  const sentences = splitReportSentences(trimmed);
+  if (sentences.length <= 1) return [trimmed];
+  const paragraphs: string[] = [];
+  let current = "";
+  let count = 0;
+  for (const s of sentences) {
+    if (current && (count >= 2 || (current.length >= 100 && current.length + 1 + s.length > 210))) {
+      paragraphs.push(current);
+      current = s;
+      count = 1;
+    } else {
+      current = current ? `${current} ${s}` : s;
+      count++;
+    }
+  }
+  if (current) paragraphs.push(current);
+  return paragraphs;
+}
+
+function cleanBracketSegment(s: string): string {
+  const trimmed = s.trim();
+  const unwrapped = /^\[([^\]]+)\]\.?$/.test(trimmed) ? trimmed.replace(/^\[([^\]]+)\]\.?$/, "$1").trim() : trimmed;
+  return unwrapped.replace(
+    /^(Thực trạng(?:\s*&\s*Bằng chứng)?|Bằng chứng|Tác động(?:\s*(?:Local SEO\s*)?&\s*Khuyến nghị)?|Hậu quả|Khuyến nghị(?:\s*hành động)?|Giải pháp|Việc nên làm|Điểm điều chỉnh|Ghi chú điều chỉnh)\s*:/i,
+    "**$1:**"
+  );
+}
+
+/** Tách một mục bullet viết dồn nhiều ý trên 1 dòng thành dòng tiêu đề + các ý con thụt lề. */
+export function splitDenseBullet(rawText: string): { text: string; subs: string[] } {
+  const normalized = rawText.trim().replace(/(\*\*[^*]+\*\*:?)\s*[-–—]\s*/u, "$1 ");
+
+  // 1. Tách theo các nhãn nội dung phổ biến (Thực trạng:, Tác động:, Hậu quả:, Khuyến nghị:, Giải pháp:...) hoặc cụm [Thực trạng: ...]
+  const labelSplitRegex =
+    /(?:\.\s+|\s+[-–—]\s+|\s*->\s*)(?=(?:\*\*|\*)?\[?(?:Thực trạng|Bằng chứng|Tác động|Hậu quả|Khuyến nghị|Giải pháp|Việc nên làm|Điểm điều chỉnh|Ghi chú điều chỉnh)(?:[^:\]\n]{0,25}):)/giu;
+  const labeledParts = normalized.split(labelSplitRegex).map(p => p.trim()).filter(Boolean);
+  if (labeledParts.length > 1) {
+    const head = labeledParts[0].replace(/\[([^\]]+)\]/g, "$1").trim();
+    const subs = labeledParts.slice(1).flatMap(part => splitLongParagraph(cleanBracketSegment(part)));
+    return { text: head, subs };
+  }
+
+  // 2. Nếu bullet dài (> 165 ký tự) có phần mở đầu in đậm + trạng thái điểm, tách phần diễn giải xuống dòng con
+  if (normalized.length > 165) {
+    const badgeMatch = normalized.match(
+      /^(\*\*[^*]+\*\*:?\s*(?:\[[^\]]+\]|\*?\([^)]+\)\*?|(?:Đạt chuẩn|Đạt tối đa|Điểm đạt:?\s*[\d/]+đ?|Trừ\s*\d+\s*đ(?:iểm)?(?:\s*[-–—]\s*[^.]+)?))\.?)\s*(?:[-–—]\s*|\s+)(.+)$/iu
+    );
+    if (badgeMatch && badgeMatch[2].trim().length >= 40) {
+      const head = badgeMatch[1].trim();
+      const rest = badgeMatch[2].trim();
+      const subs = rest
+        .split(/\s+[-–—]\s+(?=\[|[A-ZÀÁẠẢÃÂẦẤẬẨẪĂẰẮẶẲẴÈÉẸẺẼÊỀẾỆỂỄÌÍỊỈĨÒÓỌỎÕÔỒỐỘỔỖƠỜỚỢỞỠÙÚỤỦŨƯỪỨỰỬỮỲÝỴỶỸĐ])/u)
+        .flatMap(part => splitLongParagraph(cleanBracketSegment(part)));
+      return { text: head, subs };
+    }
+
+    const sentences = splitReportSentences(normalized);
+    if (sentences.length >= 2) {
+      return {
+        text: sentences[0],
+        subs: splitLongParagraph(sentences.slice(1).join(" ")),
+      };
+    }
+  }
+
+  return { text: normalized, subs: [] };
 }
 
 export function splitRefinement(text: string) {

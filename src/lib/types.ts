@@ -1,5 +1,12 @@
 import { AUDIT_VERSION } from "./audit/audit.ts";
-export { parseAndValidateScore, cleanBusinessReportText, reportValidationError, splitRefinement } from "./audit/audit.ts";
+export {
+  parseAndValidateScore,
+  cleanBusinessReportText,
+  reportValidationError,
+  splitRefinement,
+  splitLongParagraph,
+  splitDenseBullet,
+} from "./audit/audit.ts";
 /** Một gợi ý từ SerpAPI google_maps_autocomplete */
 export interface Suggestion {
   value: string;

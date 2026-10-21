@@ -1,4 +1,5 @@
 import React from "react";
+import { splitDenseBullet, splitLongParagraph } from "@/lib/types";
 
 /* ---------- Bộ icon nét mảnh, đồng bộ 1.7px ---------- */
 
@@ -297,10 +298,23 @@ export function MarkdownLite({ text }: { text: string }) {
   let pendingTableHeader: string[] | null = null;
   let key = 0;
 
-  const bulletLi = (content: string, i: number, keyBase: string) => (
-    <li key={i} className="relative pl-5">
-      <span className="absolute left-0 top-[0.52em] h-1.5 w-1.5 rounded-sm bg-moss" aria-hidden />
-      {inlineMd(content, keyBase)}
+  const renderSubs = (subs: string[], keyBase: string) =>
+    subs.length > 0 ? (
+      <ul className="mt-1.5 space-y-1.5">
+        {subs.map((sub, si) => (
+          <li key={si} className="relative pl-4 text-justify text-[0.84rem] leading-relaxed text-ink/80">
+            <span className="absolute left-0 top-[0.6em] h-1 w-1 rounded-full bg-moss/70" aria-hidden />
+            {inlineMd(sub, `${keyBase}-s${si}`)}
+          </li>
+        ))}
+      </ul>
+    ) : null;
+
+  const bulletLi = (item: MdListItem, i: number, keyBase: string) => (
+    <li key={i} className="relative pl-5 text-justify leading-relaxed">
+      <span className="absolute left-0 top-[0.55em] h-1.5 w-1.5 rounded-sm bg-moss" aria-hidden />
+      <div>{inlineMd(item.text, keyBase)}</div>
+      {renderSubs(item.subs, keyBase)}
     </li>
   );
 
@@ -311,22 +325,18 @@ export function MarkdownLite({ text }: { text: string }) {
         <ol
           key={key++}
           start={list.start}
-          className="my-2 list-decimal space-y-1.5 pl-5 marker:font-mono marker:text-[0.8em] marker:text-moss-deep"
+          className="my-2.5 list-decimal space-y-2 pl-5 marker:font-mono marker:text-[0.8em] marker:text-moss-deep"
         >
           {list.items.map((item, i) => (
-            <li key={i}>
-              {inlineMd(item.text, `li-${key}-${i}`)}
-              {item.subs.length > 0 && (
-                <ul className="mt-1.5 space-y-1">
-                  {item.subs.map((sub, si) => bulletLi(sub, si, `sub-${key}-${i}-${si}`))}
-                </ul>
-              )}
+            <li key={i} className="text-justify leading-relaxed">
+              <div>{inlineMd(item.text, `li-${key}-${i}`)}</div>
+              {renderSubs(item.subs, `sub-${key}-${i}`)}
             </li>
           ))}
         </ol>
       ) : (
-        <ul key={key++} className="my-2 space-y-1.5">
-          {list.items.map((item, i) => bulletLi(item.text, i, `li-${key}-${i}`))}
+        <ul key={key++} className="my-2.5 space-y-2">
+          {list.items.map((item, i) => bulletLi(item, i, `li-${key}-${i}`))}
         </ul>
       )
     );
@@ -336,7 +346,7 @@ export function MarkdownLite({ text }: { text: string }) {
   const flushTable = () => {
     if (pendingTableHeader) {
       blocks.push(
-        <p key={key++} className="my-2">
+        <p key={key++} className="my-2.5 text-justify leading-relaxed">
           {inlineMd(pendingTableHeader.join(" | "), `p-${key}`)}
         </p>
       );
@@ -382,6 +392,7 @@ export function MarkdownLite({ text }: { text: string }) {
   };
 
   for (const rawLine of text.split("\n")) {
+    const isIndented = /^\s{2,}/.test(rawLine);
     const line = rawLine.trim();
     if (!line) {
       if (!list?.ordered) flushList();
@@ -424,24 +435,35 @@ export function MarkdownLite({ text }: { text: string }) {
     const heading = line.match(/^(#{2,4})\s+(.*)$/);
     if (heading) {
       flushList();
+      const level = heading[1].length;
+      const headingText = heading[2].replace(/\*\*/g, "");
       blocks.push(
-        <h4
-          key={key++}
-          className="wide mb-1.5 mt-5 flex items-center gap-2 font-display text-[0.78rem] font-bold uppercase tracking-[0.12em] text-moss-deep first:mt-0"
-        >
-          <span className="h-[7px] w-[7px] rotate-45 bg-moss" aria-hidden />
-          {heading[2].replace(/\*\*/g, "")}
-        </h4>
+        level === 2 ? (
+          <h4
+            key={key++}
+            className="wide mb-2 mt-6 flex items-center gap-2 text-left font-display text-[0.8rem] font-bold uppercase tracking-[0.12em] text-moss-deep first:mt-0"
+          >
+            <span className="h-[7px] w-[7px] shrink-0 rotate-45 bg-moss" aria-hidden />
+            {headingText}
+          </h4>
+        ) : (
+          <h5
+            key={key++}
+            className="mb-1.5 mt-4 flex items-center gap-2 border-l-2 border-moss pl-2.5 text-left font-display text-[0.78rem] font-bold tracking-[0.03em] text-ink first:mt-0"
+          >
+            {headingText}
+          </h5>
+        )
       );
       continue;
     }
-    const bullet = line.match(/^[-*]\s+(.*)$/);
+    const bullet = line.match(/^[-*•+]\s+(.*)$/);
     if (bullet) {
-      if (list?.ordered && list.items.length > 0) {
-        list.items[list.items.length - 1].subs.push(bullet[1]);
+      if ((isIndented || list?.ordered) && list && list.items.length > 0) {
+        list.items[list.items.length - 1].subs.push(...splitLongParagraph(bullet[1]));
       } else {
         if (!list) list = { ordered: false, start: 1, items: [] };
-        list.items.push({ text: bullet[1], subs: [] });
+        list.items.push(splitDenseBullet(bullet[1]));
       }
       continue;
     }
@@ -451,20 +473,22 @@ export function MarkdownLite({ text }: { text: string }) {
         flushList();
         list = { ordered: true, start: parseInt(numbered[1], 10) || 1, items: [] };
       }
-      list.items.push({ text: numbered[2], subs: [] });
+      list.items.push(splitDenseBullet(numbered[2]));
       continue;
     }
     flushList();
-    blocks.push(
-      <p key={key++} className="my-2">
-        {inlineMd(line, `p-${key}`)}
-      </p>
-    );
+    for (const para of splitLongParagraph(line)) {
+      blocks.push(
+        <p key={key++} className="my-2.5 text-justify leading-relaxed">
+          {inlineMd(para, `p-${key}`)}
+        </p>
+      );
+    }
   }
   flushList();
   flushTable();
 
-  return <div className="text-[0.875rem] leading-relaxed text-ink/85">{blocks}</div>;
+  return <div className="text-justify text-[0.875rem] leading-relaxed text-ink/85">{blocks}</div>;
 }
 
 /* ---------- Skeleton khi đang tải hồ sơ ---------- */

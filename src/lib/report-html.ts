@@ -39,7 +39,8 @@ function inlineLight(text: string): string {
     .join("");
 }
 
-function inlineMd(text: string): string {
+function inlineMd(rawText: string): string {
+  const text = escapeHtml(rawText);
   return text
     .split(/\*\*(.+?)\*\*/g)
     .map((part, i) => (i % 2 === 1 ? `<strong>${inlineLight(part)}</strong>` : inlineLight(part)))
@@ -64,7 +65,7 @@ function markdownToHtml(md: string): string {
   let pendingTableHeader: string[] | null = null;
 
   const renderItem = (it: MdListItem) =>
-    `<li>${inlineMd(it.text)}${
+    `<li><div>${inlineMd(it.text)}</div>${
       it.subs.length ? `<ul>` + it.subs.map((s) => `<li>${inlineMd(s)}</li>`).join("") + `</ul>` : ""
     }</li>`;
 
@@ -91,7 +92,8 @@ function markdownToHtml(md: string): string {
   };
 
   for (const rawLine of md.split("\n")) {
-    const line = escapeHtml(rawLine.trim());
+    const isIndented = /^\s{2,}/.test(rawLine);
+    const line = rawLine.trim();
     if (!line) {
       if (!list?.ordered) flushList();
       if (table || pendingTableHeader) flushTable();
@@ -133,16 +135,18 @@ function markdownToHtml(md: string): string {
     const heading = line.match(/^(#{2,4})\s+(.*)$/);
     if (heading) {
       flushList();
-      out.push(`<h2>${inlineMd(heading[2].replace(/\*\*/g, ""))}</h2>`);
+      const level = heading[1].length;
+      const headingText = heading[2].replace(/\*\*/g, "");
+      out.push(level === 2 ? `<h2>${inlineMd(headingText)}</h2>` : `<h3>${inlineMd(headingText)}</h3>`);
       continue;
     }
-    const bullet = line.match(/^[-*]\s+(.*)$/);
+    const bullet = line.match(/^[-*•+]\s+(.*)$/);
     if (bullet) {
-      if (list?.ordered && list.items.length > 0) {
-        list.items[list.items.length - 1].subs.push(bullet[1]);
+      if ((isIndented || list?.ordered) && list && list.items.length > 0) {
+        list.items[list.items.length - 1].subs.push(...splitLongParagraph(bullet[1]));
       } else {
         if (!list) list = { ordered: false, start: 1, items: [] };
-        list.items.push({ text: bullet[1], subs: [] });
+        list.items.push(splitDenseBullet(bullet[1]));
       }
       continue;
     }
@@ -152,18 +156,25 @@ function markdownToHtml(md: string): string {
         flushList();
         list = { ordered: true, start: parseInt(numbered[1], 10) || 1, items: [] };
       }
-      list.items.push({ text: numbered[2], subs: [] });
+      list.items.push(splitDenseBullet(numbered[2]));
       continue;
     }
     flushList();
-    out.push(`<p>${inlineMd(line)}</p>`);
+    for (const para of splitLongParagraph(line)) {
+      out.push(`<p>${inlineMd(para)}</p>`);
+    }
   }
   flushList();
   flushTable();
   return out.join("\n");
 }
 
-import { parseAndValidateScore, cleanBusinessReportText } from "@/lib/types";
+import {
+  parseAndValidateScore,
+  cleanBusinessReportText,
+  splitDenseBullet,
+  splitLongParagraph,
+} from "@/lib/types";
 
 export interface AuditReportInput {
   restaurant: string;
@@ -264,22 +275,31 @@ export function buildAuditReportHtml({ restaurant, analysis, score, logoUrl }: A
   .rule { height: 1.2mm; background: var(--orange); border: 0; margin: 6mm 0 7mm; }
 
   /* Nội dung báo cáo */
+  .report { text-align: justify; }
   .report h2 {
     font-family: "Be Vietnam Pro", sans-serif; font-weight: 700;
     font-size: 10.5pt; text-transform: uppercase; letter-spacing: .06em;
     color: var(--orange-deep); margin: 6mm 0 2.5mm;
     display: flex; align-items: center; gap: 2.2mm;
+    text-align: left;
     break-after: avoid-page;
   }
   .report h2::before {
     content: ""; width: 2.4mm; height: 2.4mm; background: var(--orange);
     transform: rotate(45deg); flex-shrink: 0;
   }
-  .report p { margin: 2mm 0; }
-  .report ul, .report ol { margin: 2mm 0 3mm; padding-left: 6mm; }
-  .report li { margin: 1.4mm 0; break-inside: avoid-page; }
-  .report li > ul { margin: 1mm 0 1.5mm; padding-left: 5mm; }
-  .report li > ul li { margin: 1mm 0; }
+  .report h3 {
+    font-family: "Be Vietnam Pro", sans-serif; font-weight: 700;
+    font-size: 9.8pt; color: var(--ink); margin: 4.5mm 0 2mm;
+    padding-left: 2.5mm; border-left: 2pt solid var(--orange);
+    text-align: left;
+    break-after: avoid-page;
+  }
+  .report p { margin: 2.4mm 0; text-align: justify; }
+  .report ul, .report ol { margin: 2mm 0 3.5mm; padding-left: 6mm; }
+  .report li { margin: 1.8mm 0; break-inside: avoid-page; text-align: justify; }
+  .report li > ul { margin: 1.2mm 0 1.8mm; padding-left: 5mm; }
+  .report li > ul li { margin: 1mm 0; text-align: justify; }
   .report ul li::marker { color: var(--orange); }
   .report ol li::marker { font-family: "IBM Plex Mono", monospace; font-weight: 500; color: var(--orange-deep); }
   .report strong { font-weight: 600; color: #000; }

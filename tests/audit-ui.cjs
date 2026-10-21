@@ -54,3 +54,30 @@ assert.equal(saveVenueAuditMemory("one", { dataId: "one", analysis: report }), f
 delete global.window;
 delete global.localStorage;
 console.log("PASS: draft sửa/lỗi/giải đáp; báo cáo hoàn tất không bị chặn vì tiêu đề; cache và lỗi lưu.");
+
+const { buildAuditReportHtml } = require("../src/lib/report-html.ts");
+const denseSample = [
+  "## Đánh giá tổng quan sức khỏe hồ sơ",
+  "Cục Gạch Quán là một biểu tượng ẩm thực truyền thống Việt Nam tại TP. Hồ Chí Minh với uy tín lâu năm và lượng đánh giá khổng lồ (hơn 4.200 review, đạt 4.3★). Tuy nhiên, trên mặt trận số hóa Google Business Profile (GBP), nhà hàng đang là một \"vương triều ngủ quên\". Sở hữu di sản danh tiếng offline nhưng lại bỏ hoang hoàn toàn cơ sở hạ tầng trực tuyến, hồ sơ đang âm thầm tạo ra những lỗ rò doanh thu nghiêm trọng: website dùng chuẩn HTTP kém bảo mật, hoàn toàn trống rỗng Text Menu, thiếu hụt hình ảnh không gian và mất trắng lượng khách đặt bàn trực tuyến. Khách hàng tiềm năng đang bị bỏ rơi giữa một mặt tiền số sơ sài.",
+  "## Phân tích chi tiết 5 trụ cột & Barem trừ điểm",
+  "### I. Thông tin cơ bản & Tính nhất quán (16/20 điểm)",
+  "- **4. Kênh Liên Hệ & Website (0/4đ):** [Mức trừ: Trừ 4đ] - [Thực trạng: Hồ sơ để trống hoàn toàn số điện thoại và không có website chính thức.] - [Tác động: Gây mất lòng tin với thuật toán Google và khách hàng.] - [Khuyến nghị: Bổ sung ngay số hotline +84 và website HTTPS.]",
+  "## Điểm sức khỏe hồ sơ: 34/100",
+].join("\n");
+
+const renderedUi = render({ status: "done", analysis: denseSample });
+assert.ok(renderedUi.includes("text-justify"), "Web UI report phải có text-justify");
+assert.ok((renderedUi.match(/<p /g) || []).length >= 3, "Đoạn tổng quan dài 1 cục phải được tách thành nhiều đoạn <p>");
+assert.ok(/<strong[^>]*>Thực trạng:<\/strong>/.test(renderedUi), "Bullet viết dồn phải tách nhãn Thực trạng thành ý con");
+assert.ok(/<strong[^>]*>Khuyến nghị:<\/strong>/.test(renderedUi), "Bullet viết dồn phải tách nhãn Khuyến nghị thành ý con");
+
+const renderedPdf = buildAuditReportHtml({
+  restaurant: "Cục Gạch Quán",
+  analysis: denseSample,
+  score: "34",
+  logoUrl: "/logo.png",
+});
+assert.ok(renderedPdf.includes("text-align: justify"), "Báo cáo in/PDF phải căn đều (justify)");
+assert.ok((renderedPdf.match(/<p>/g) || []).length >= 3, "Báo cáo in/PDF phải tách đoạn văn dài thành nhiều đoạn <p>");
+assert.ok(renderedPdf.includes("<ul><li><strong>Thực trạng:</strong>"), "Báo cáo in/PDF phải tách ý con thụt lề cho tiêu chí dài");
+console.log("PASS: tách đoạn văn/bullet viết 1 cục và căn đều (justify) trên cả Web UI lẫn bản in PDF.");

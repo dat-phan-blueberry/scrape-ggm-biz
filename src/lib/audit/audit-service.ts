@@ -156,12 +156,12 @@ export async function generateAudit(apiKeyOrPool: string | KeyPoolLike, input: A
 
       if (res.status === 429) {
         const penaltyReason = period === "minute" ? "rate" : "quota";
-        pool.penalize?.(lease, penaltyReason, retryAfter ? retryAfter * 1000 : undefined);
+        if (!gatewayUrl) pool.penalize?.(lease, penaltyReason, retryAfter ? retryAfter * 1000 : undefined);
         throw new AuditError("Dịch vụ phân tích đang giới hạn lượt gọi. Vui lòng đợi rồi thử lại.", 429, retryAfter, nextAttempts);
       }
 
       if (res.status === 401 || res.status === 403) {
-        pool.penalize?.(lease, "invalid");
+        if (!gatewayUrl) pool.penalize?.(lease, "invalid");
         throw new AuditError("Dịch vụ phân tích chưa được cấp quyền truy cập.", res.status, undefined, nextAttempts);
       }
 
