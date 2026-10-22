@@ -4,6 +4,13 @@ declare const Deno: { env: { get(name: string): string | undefined } } | undefin
 
 export const AUDIT_MODEL = (typeof Deno !== "undefined" ? Deno.env.get("GEMINI_MODEL") : (typeof process !== "undefined" ? process.env?.GEMINI_MODEL : undefined)) || "gemini-flash-lite-latest";
 export const AI_TIMEOUT_MS = Number(typeof Deno !== "undefined" ? Deno.env.get("AI_TIMEOUT_MS") : (typeof process !== "undefined" ? process.env?.AI_TIMEOUT_MS : undefined)) || 10 * 60 * 1000;
+/**
+ * Luồng im lặng quá lâu thì coi là đứt: nếu không, UI đứng ở bản dở tới hết AI_TIMEOUT_MS (10 phút)
+ * mà không báo gì. Chunk đầu được chờ lâu hơn vì model còn suy nghĩ trước khi viết.
+ */
+function envMs(name: string, fallback: number): number {
+  return Number(typeof Deno !== "undefined" ? Deno.env.get(name) : (typeof process !== "undefined" ? process.env?.[name] : undefined)) || fallback;
+}
 export class AuditError extends Error {
   constructor(message: string, public status = 502, public retryAfterSeconds?: number, public nextKeyAttempts?: number[]) { super(message); }
 }
@@ -77,9 +84,18 @@ async function readGeminiStream(res: Response, onDelta: (text: string) => void):
     if (!value.trim()) dispatch();
     else if (value.startsWith("data:")) dataLines.push(value.slice(5).trimStart());
   };
+  const readWithIdleLimit = async () => {
+    let timer: ReturnType<typeof setTimeout> | undefined;
+    const limit = text ? envMs("AI_STREAM_IDLE_MS", 45_000) : envMs("AI_FIRST_CHUNK_MS", 120_000);
+    const idle = new Promise<never>((_, reject) => {
+      timer = setTimeout(() => reject(new AuditError("Dịch vụ phân tích ngừng phản hồi giữa chừng. Vui lòng thử lại.", 504)), limit);
+    });
+    try { return await Promise.race([reader.read(), idle]); }
+    finally { clearTimeout(timer); }
+  };
   try {
     while (!ended) {
-      const { done, value } = await reader.read();
+      const { done, value } = await readWithIdleLimit();
       ended = done;
       buffer += done ? decoder.decode() : decoder.decode(value, { stream: true });
       let end: number;

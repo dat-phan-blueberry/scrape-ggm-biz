@@ -45,7 +45,7 @@ const streamed = text => {
       const menu = prompt.split("<text_menu>\n")[1].split("\n</text_menu>")[0];
       for (const line of ["Số món có tên: 2", "Số món có giá: 2", "Số món có mô tả: 2", "Nhóm món: Món chính", "Tên món: Cao lầu", "Giá: 65.000đ", "Mô tả: Mì, thịt và rau", "Nhóm món: Đồ uống", "Tên món: Nước chanh", "Giá: 30.000đ", "Mô tả: Chanh tươi"]) assert.ok(menu.includes(line));
       assert.ok(!/\b(?:null|undefined)\b|\[object Object\]/.test(prompt));
-      assert.ok(prompt.includes("Giới thiệu của nhà hàng: Chưa ghi nhận"));
+      assert.ok(prompt.includes("Giới thiệu của nhà hàng: Không đánh giá"));
       assert.equal(prompt.includes(oldReport), chat);
       assert.ok(!body.systemInstruction.parts[0].text.includes(oldReport));
       if (chat) {

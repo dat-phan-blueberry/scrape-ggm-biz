@@ -84,6 +84,7 @@ export function classify(status: number, data: any): Classification {
 export async function serpApiSearch(
   params: URLSearchParams,
   tag: string,
+  timeoutMs = 25_000,
 ): Promise<any> {
   const pool = getSerpApiKeyPool();
 
@@ -108,7 +109,7 @@ export async function serpApiSearch(
     let res: Response;
     let data: any;
     try {
-      res = await fetch(`https://serpapi.com/search.json?${search.toString()}`, { signal: AbortSignal.timeout(25_000) });
+      res = await fetch(`https://serpapi.com/search.json?${search.toString()}`, { signal: AbortSignal.timeout(timeoutMs) });
       data = await res.json().catch(() => ({}));
     } catch (error) {
       // Lỗi mạng không phải lỗi của key — đừng phạt oan, đừng đốt key kế tiếp.

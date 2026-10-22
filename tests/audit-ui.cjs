@@ -33,7 +33,8 @@ const completedWithoutMenuHeading = render({ status: "done", analysis: "## Thự
 assert.ok(!completedWithoutMenuHeading.includes("Chưa hoàn tất thẩm định"));
 assert.ok(!completedWithoutMenuHeading.includes("Thẩm định lại"));
 assert.ok(completedWithoutMenuHeading.includes("Xuất PDF"));
-assert.ok(renderToStaticMarkup(React.createElement(MenuSection, { profile: { menu: null } })).includes("Chưa thu thập được danh sách món dạng chữ"));
+assert.ok(renderToStaticMarkup(React.createElement(MenuSection, { profile: { menu: null } })).includes("Không lấy được danh sách món từ Google nên tiêu chí Text Menu không được chấm."));
+assert.ok(renderToStaticMarkup(React.createElement(MenuSection, { profile: { menu: null, enrichment: { knowledge_graph: "ok", dishes: "ok" } } })).includes("Hồ sơ Google không có món dạng chữ."));
 
 const { getVenueAuditMemory, saveVenueAuditMemory } = require("../src/lib/types.ts");
 const report = require("./fixture-report.cjs")({ title: "Quán QA" });

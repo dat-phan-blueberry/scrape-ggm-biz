@@ -2,7 +2,8 @@
 export const REPORT_MARKER = "=== BẢN BÁO CÁO CẬP NHẬT ===";
 export const CHAT_MARKER = "=== PHẢN HỒI CHAT ===";
 export const AUDIT_VERSION = "2026-09-15.2";
-const UNKNOWN = "Chưa ghi nhận trong thông tin thu thập; cần kiểm tra trực tiếp.";
+/** D-0113: nguồn đã lấy được mà không có mục đó thì là "không có", không để trạng thái lửng. */
+const NONE = "Không có trên hồ sơ Google.";
 
 /**
  * Tên địa danh chỉ giúp nhận diện nhận định cần kiểm chứng, không phải danh sách
@@ -46,18 +47,18 @@ function rows(value: unknown): Record<string, unknown>[] {
   return Array.isArray(value) ? value.map(record) : [];
 }
 function label(value: unknown): string {
-  return typeof value === "string" && value.trim() ? value.trim() : UNKNOWN;
+  return typeof value === "string" && value.trim() ? value.trim() : NONE;
 }
 
 /** Đưa tư liệu sang ghi chú kinh doanh; giá trị chưa có không thành từ khóa lập trình. */
 function evidenceText(value: unknown): string {
-  if (value === null || value === undefined || (typeof value === "string" && !value.trim())) return UNKNOWN;
+  if (value === null || value === undefined || (typeof value === "string" && !value.trim())) return NONE;
   if (Array.isArray(value)) return value.length
-    ? value.map(item => `- ${evidenceText(item).replace(/\n/g, "\n  ")}`).join("\n") : UNKNOWN;
+    ? value.map(item => `- ${evidenceText(item).replace(/\n/g, "\n  ")}`).join("\n") : NONE;
   if (typeof value === "object") return Object.entries(value).map(([name, item]) =>
-    `${name}: ${evidenceText(item).replace(/\n/g, "\n  ")}`).join("\n") || UNKNOWN;
+    `${name}: ${evidenceText(item).replace(/\n/g, "\n  ")}`).join("\n") || NONE;
   if (typeof value === "boolean") return value ? "Có" : "Không";
-  if (typeof value === "number") return Number.isFinite(value) ? String(value) : UNKNOWN;
+  if (typeof value === "number") return Number.isFinite(value) ? String(value) : NONE;
   return String(value).trim();
 }
 
@@ -73,46 +74,292 @@ function currencyValues(text: string): number[] {
   });
 }
 
-export function businessBrief(profile: unknown) {
+const DAY_MS = 86_400_000;
+function vnDate(iso: unknown, fallback: unknown = ""): string {
+  const time = typeof iso === "string" ? Date.parse(iso) : NaN;
+  if (!Number.isFinite(time)) return typeof fallback === "string" && fallback.trim() ? fallback.trim() : "không rõ ngày";
+  return new Date(time).toLocaleDateString("vi-VN", { timeZone: "Asia/Ho_Chi_Minh", day: "2-digit", month: "2-digit", year: "numeric" });
+}
+function daysAgo(iso: unknown, now: number): number | null {
+  const time = typeof iso === "string" ? Date.parse(iso) : NaN;
+  return Number.isFinite(time) ? Math.max(0, Math.floor((now - time) / DAY_MS)) : null;
+}
+function clip(value: unknown, max: number): string {
+  const s = typeof value === "string" ? value.replace(/\s+/g, " ").trim() : "";
+  return s.length > max ? `${s.slice(0, max - 1)}…` : s;
+}
+function duration(hours: number): string {
+  return hours < 1 ? "dưới 1 giờ" : hours < 48 ? `khoảng ${Math.round(hours)} giờ` : `khoảng ${Math.round(hours / 24)} ngày`;
+}
+/** Lý do mặc định khi một tiêu chí không chấm được vì nguồn không trả dữ kiện. */
+function notEvaluated(reason: string): string {
+  return `Không đánh giá — ${reason}`;
+}
+
+type Pillar = "I" | "II" | "III" | "IV" | "V";
+
+/** Review mới đăng chưa tới 3 ngày chưa tính vào tỷ lệ phản hồi: chủ quán cần thời gian trả lời. */
+const RESPONSE_GRACE_DAYS = 3;
+
+/** Gộp mẫu mới nhất + mẫu nổi bật, bỏ trùng; chỉ giữ review đủ cũ để xét tỷ lệ phản hồi. */
+function reviewPools(p: Record<string, unknown>, now: number) {
+  const seen = new Set<string>();
+  const all = [...rows(p.recent_reviews), ...rows(p.relevant_reviews)].filter(r => {
+    const key = `${r.iso_date}|${r.snippet}|${r.rating}`;
+    if (seen.has(key)) return false;
+    seen.add(key);
+    return true;
+  });
+  const eligible = all.filter(r => (daysAgo(r.iso_date, now) ?? -1) >= RESPONSE_GRACE_DAYS);
+  return { all, eligible };
+}
+const hasReply = (r: Record<string, unknown>) => !!record(r.response).snippet;
+const PILLAR_MAX: Record<Pillar, number> = { I: 20, II: 20, III: 25, IV: 15, V: 20 };
+
+export interface ExcludedCriterion { pillar: Pillar; name: string; max: number; reason: string }
+
+/**
+ * D-0113: dữ kiện chỉ có "có" hoặc "không". Tiêu chí mà dữ kiện quyết định không
+ * thu thập được thì không chấm và bị loại khỏi điểm tối đa — tính bằng code để
+ * AI không phải đoán.
+ */
+export function scoringScope(profile: unknown, now = Date.now()): { excluded: ExcludedCriterion[]; maxByPillar: Record<Pillar, number>; total: number } {
+  const p = record(profile);
+  const enrichment = record(p.enrichment);
+  const collected = (source: string) => enrichment[source] === "ok";
+  const items = rows(record(p.menu).categories).flatMap(c => rows(c.items)).filter(i => typeof i.title === "string" && i.title.trim());
+  const namesOnly = p.menu_origin === "google_dishes";
+  const kgOk = collected("knowledge_graph");
+  // Không thấy món chưa chắc là quán không có món (khối món của Google không ổn định).
+  const dishesOk = collected("dishes");
+  const hasDescription = [p.merchant_description, p.description].some(v => typeof v === "string" && v.trim());
+  const reviewPhotos = rows(p.user_reviews).some(r => Array.isArray(r.images) && r.images.length > 0);
+
+  const excluded: ExcludedCriterion[] = [];
+  const skip = (pillar: Pillar, name: string, max: number, reason: string) => excluded.push({ pillar, name, max, reason });
+
+  // SerpAPI hiện chỉ trả nhóm hỗ trợ tiếp cận (+ vài lựa chọn dịch vụ từ KG), thiếu các nhóm chính
+  // như hình thức phục vụ, thanh toán, tiện nghi — không đủ để chấm "quá sơ sài".
+  const categoryCount = Array.isArray(p.types) ? p.types.filter(t => typeof t === "string" && t.trim()).length : 0;
+  if (!categoryCount) skip("II", "1. Danh Mục", 5, "Không lấy được danh mục của hồ sơ (hồ sơ Google luôn có danh mục chính).");
+  const fullAttributes = rows(p.extensions).some(e => !["accessibility", "Lựa chọn dịch vụ"].includes(String(e.key)));
+  if (!fullAttributes) skip("I", "5. Tiện Ích Thuộc Tính", 3, "Google chỉ trả một phần thuộc tính (hỗ trợ tiếp cận, lựa chọn dịch vụ), không đủ để đánh giá mức đầy đủ.");
+  // Danh sách món của Google có tên + giá (nếu chủ quán niêm yết) nhưng không có mô tả:
+  // chấm được Bảng giá, không chấm được Text Menu (barem phân biệt có/không mô tả).
+  if (namesOnly) {
+    skip("II", "2. Số Hóa Menu - Text Menu", 7, "Google trả tên món nhưng không trả mô tả từng món.");
+  } else if (!items.length && !dishesOk) {
+    skip("II", "2. Số Hóa Menu - Text Menu", 7, "Không lấy được danh sách món từ Google.");
+    skip("II", "3. Minh Bạch Bảng Giá", 4, "Không lấy được danh sách món và giá từ Google.");
+  }
+  if (!items.length && !rows(p.menu_highlights).length && !dishesOk) skip("II", "4. Hình Đại Diện Từng Món Ăn", 4, "Không lấy được danh sách món kèm ảnh từ Google.");
+  if (!collected("reviews")) {
+    skip("III", "2. Số Lượng & Mật Độ Review Mới", 6, "Không lấy được ngày của các đánh giá mới nhất.");
+    skip("III", "3. Tỷ Lệ & Tốc Độ Phản Hồi", 7, "Không lấy được phản hồi của chủ quán.");
+    skip("III", "4. Chất Lượng Nội Dung Phản Hồi", 6, "Không lấy được phản hồi của chủ quán.");
+  } else if (reviewPools(p, now).all.length && !reviewPools(p, now).eligible.length) {
+    skip("III", "3. Tỷ Lệ & Tốc Độ Phản Hồi", 7, `Các đánh giá lấy được đều mới đăng dưới ${RESPONSE_GRACE_DAYS} ngày, chủ quán chưa đủ thời gian phản hồi.`);
+    skip("III", "4. Chất Lượng Nội Dung Phản Hồi", 6, `Các đánh giá lấy được đều mới đăng dưới ${RESPONSE_GRACE_DAYS} ngày.`);
+  }
+  if (!collected("photos")) {
+    skip("IV", "2. Hình Ảnh Không Gian", 6, "Không lấy được album ảnh của hồ sơ.");
+    if (!reviewPhotos) skip("IV", "3. Tỷ Lệ Ảnh Khách Đăng - UGC", 5, "Không lấy được album ảnh và ảnh khách đăng.");
+  }
+  if (!collected("posts")) skip("V", "1. Tần Suất Đăng Bài Cập Nhật", 4, "Không lấy được bài đăng của hồ sơ.");
+  // Nguồn Google hiện không trả mục Hỏi & Đáp cho mọi địa điểm (đã thử search/place_id/data_cid, vi/en).
+  skip("V", "3. Mục Hỏi & Đáp Chủ Động", 3, "Nguồn dữ liệu Google không trả mục Hỏi & Đáp.");
+  if (!hasDescription && !kgOk) skip("V", "4. Giới Thiệu Doanh Nghiệp", 6, "Không lấy được phần giới thiệu doanh nghiệp.");
+
+  const maxByPillar = { ...PILLAR_MAX };
+  for (const e of excluded) maxByPillar[e.pillar] -= e.max;
+  return { excluded, maxByPillar, total: Object.values(maxByPillar).reduce((a, b) => a + b, 0) };
+}
+
+export function businessBrief(profile: unknown, now = Date.now()) {
   const p = record(profile);
   const menu = record(p.menu);
   const categories = rows(menu.categories);
   const items = categories.flatMap(c => rows(c.items)).filter(i => typeof i.title === "string" && i.title.trim());
+  const enrichment = record(p.enrichment);
+  const collected = (source: string) => enrichment[source] === "ok";
+  const kgOk = collected("knowledge_graph");
+  const scope = scoringScope(profile, now);
+  const menuLinks = Array.from(new Set([menu.link, ...rows(p.menu_links).map(l => l.link)]
+    .filter((l): l is string => typeof l === "string" && l.trim() !== "")));
+  const photoCats = Array.isArray(p.photo_categories) ? p.photo_categories.map(String).filter(Boolean) : [];
+  const dishes = rows(p.menu_highlights);
+  const highlights = rows(menu.highlights).map(h => label(h.title));
+  const kgHighlights = dishes.map(h => typeof h.photos === "number" ? `${h.title} (${h.photos} ảnh)` : String(h.title));
+  const unsupported = rows(p.unsupported_extensions).flatMap(e => Array.isArray(e.items) ? e.items.filter(i => typeof i === "string") : []);
+  // Thực đơn dựng từ danh sách món Google: có tên, nguồn không trả giá/mô tả nên hai tiêu chí đó không chấm.
+  const namesOnly = p.menu_origin === "google_dishes";
+
+  const ownerText = typeof p.merchant_description === "string" ? p.merchant_description.trim() : "";
+  const googleText = typeof p.description === "string" ? p.description.trim() : "";
+  const descriptionSource = ownerText
+    ? `Doanh nghiệp tự viết (mục "Từ doanh nghiệp" trên Google), ${ownerText.length} ký tự.`
+    : googleText
+    ? `Tóm tắt Google hiển thị, ${googleText.length} ký tự${kgOk ? "; hồ sơ không có mô tả do doanh nghiệp tự viết" : ""}.`
+    : kgOk ? "Không có mô tả doanh nghiệp." : notEvaluated("không lấy được phần giới thiệu doanh nghiệp.");
+
+  const reviews = rows(p.recent_reviews);
+  const relevantCount = rows(p.relevant_reviews).length;
+  const { all: reviewPool, eligible } = reviewPools(p, now);
+  // Tỷ lệ phản hồi chỉ xét review đủ cũ; tốc độ và ví dụ phản hồi dùng mọi review đã được trả lời.
+  const responded = eligible.filter(hasReply);
+  const repliedAny = reviewPool.filter(hasReply);
+  const low = eligible.filter(r => typeof r.rating === "number" && r.rating <= 2);
+  const responseHours = repliedAny.flatMap(r => {
+    const diff = Date.parse(String(record(r.response).iso_date)) - Date.parse(String(r.iso_date));
+    return Number.isFinite(diff) && diff >= 0 ? [diff / 3_600_000] : [];
+  }).sort((a, b) => a - b);
+  const reviewDates = reviews.map(r => r.iso_date).filter((d): d is string => typeof d === "string" && Number.isFinite(Date.parse(d))).sort();
+  const newestReviewDays = daysAgo(reviewDates[reviewDates.length - 1], now);
+  const ownerResponses = !collected("reviews") ? notEvaluated("không lấy được đánh giá mới nhất và phản hồi của chủ quán.")
+    : !reviewPool.length ? "Không có đánh giá nào."
+    : {
+      "Phạm vi mẫu": `${reviews.length} đánh giá mới nhất${reviewDates.length ? ` (từ ${vnDate(reviewDates[0])} đến ${vnDate(reviewDates[reviewDates.length - 1])})` : ""} và ${relevantCount} đánh giá nổi bật trên Google Maps.`,
+      "Số đánh giá được chủ quán phản hồi": eligible.length
+        ? `${responded.length}/${eligible.length} (chỉ tính đánh giá đã đăng từ ${RESPONSE_GRACE_DAYS} ngày trở lên)`
+        : notEvaluated(`các đánh giá lấy được đều mới đăng dưới ${RESPONSE_GRACE_DAYS} ngày.`),
+      "Đánh giá 1–2★ trong mẫu": low.length ? `${low.filter(r => record(r.response).snippet).length}/${low.length} đã được phản hồi` : "Không có.",
+      "Thời gian phản hồi trung vị": responseHours.length ? duration(responseHours[Math.floor(responseHours.length / 2)]) : "Không có phản hồi để tính.",
+      "Đánh giá mới nhất": newestReviewDays === null ? "Không rõ ngày." : `cách đây ${newestReviewDays} ngày`,
+      "Số đánh giá trong 30 ngày gần nhất (trong mẫu)": reviewDates.filter(d => (daysAgo(d, now) ?? Infinity) <= 30).length,
+      "Ví dụ phản hồi của chủ quán": repliedAny.length ? repliedAny.slice(0, 5).map(r => ({
+        "Số sao": r.rating, "Khách viết": clip(r.snippet, 160), "Chủ quán trả lời": clip(record(r.response).snippet, 300),
+      })) : "Không có phản hồi nào trong mẫu.",
+    };
+
+  const posts = rows(p.posts);
+  const postDays = posts.map(pt => daysAgo(pt.iso_date, now)).filter((d): d is number => d !== null).sort((a, b) => a - b);
+  const latestPost = posts.find(pt => daysAgo(pt.iso_date, now) === postDays[0]);
+  const updates = !collected("posts") ? notEvaluated("không lấy được bài đăng của hồ sơ.")
+    : !posts.length ? "Không có bài đăng nào."
+    : {
+      "Số bài đăng lấy được": `${posts.length} (trang đầu, tối đa 10 bài gần nhất)`,
+      "Bài gần nhất": postDays.length ? `${vnDate(latestPost?.iso_date)} (cách đây ${postDays[0]} ngày)` : vnDate(undefined, posts[0].date),
+      "Số bài trong 60 ngày gần nhất": postDays.filter(d => d <= 60).length,
+      "Số bài có ảnh": posts.filter(pt => pt.has_image === true).length,
+      "Bài tiêu biểu": posts.slice(0, 3).map(pt => ({ "Ngày": vnDate(pt.iso_date, pt.date), "Nội dung": clip(pt.snippet, 200) || "Chỉ có ảnh, không có chữ." })),
+    };
+
+  const dishesWithPhoto = dishes.filter(h => typeof h.photos === "number" && h.photos > 0).length;
+
+  // Tiêu chí có số liệu rõ: tính điểm theo barem bằng code để AI không nới/siết tay (D-0113).
+  const excludedNames = new Set(scope.excluded.map(e => `${e.pillar}.${e.name}`));
+  const preset: string[] = [];
+  const set = (key: string, score: number, max: number, why: string) => {
+    if (!excludedNames.has(key)) preset.push(`${key}: ${score}/${max}đ — ${why}`);
+  };
+  if (typeof p.rating === "number") {
+    const r = p.rating;
+    set("III.1. Điểm Đánh Giá Trung Bình", r >= 4.5 ? 6 : r >= 4 ? 4 : r >= 3.5 ? 2 : 0, 6, `${r}★.`);
+  }
+  if (collected("reviews")) {
+    const total = typeof p.reviews_count === "number" ? p.reviews_count : null;
+    const recent = reviewDates.filter(d => (daysAgo(d, now) ?? Infinity) <= 30).length;
+    if (total !== null && total < 25) set("III.2. Số Lượng & Mật Độ Review Mới", 0, 6, `chỉ có ${total} lượt đánh giá (dưới 25).`);
+    else if (reviews.length && !recent) set("III.2. Số Lượng & Mật Độ Review Mới", 3, 6, "không có đánh giá mới trong 30 ngày.");
+    if (eligible.length) {
+      const median = responseHours.length ? responseHours[Math.floor(responseHours.length / 2)] : null;
+      const lowUnanswered = low.filter(r => !hasReply(r)).length;
+      const why = `chủ quán phản hồi ${responded.length}/${eligible.length} đánh giá đã đăng từ ${RESPONSE_GRACE_DAYS} ngày trở lên${median === null ? "" : `, trung vị ${duration(median)}`}`;
+      if (!responded.length && !repliedAny.length) {
+        set("III.3. Tỷ Lệ & Tốc Độ Phản Hồi", 0, 7, `không phản hồi đánh giá nào trong ${reviewPool.length} đánh giá lấy được.`);
+        set("III.4. Chất Lượng Nội Dung Phản Hồi", 0, 6, "chưa có phản hồi nào để đánh giá.");
+      } else if (lowUnanswered) set("III.3. Tỷ Lệ & Tốc Độ Phản Hồi", 2, 7, `${why}; bỏ trống ${lowUnanswered} đánh giá 1–2★.`);
+      else if (responded.length / eligible.length < 0.8 || (median !== null && median > 120)) set("III.3. Tỷ Lệ & Tốc Độ Phản Hồi", 4, 7, `${why}; tỷ lệ dưới 80% hoặc chậm hơn 5 ngày.`);
+      else set("III.3. Tỷ Lệ & Tốc Độ Phản Hồi", 7, 7, `${why}.`);
+    }
+  }
+  if (collected("posts")) {
+    const latest = postDays.length ? postDays[0] : null;
+    if (!posts.length) set("V.1. Tần Suất Đăng Bài Cập Nhật", 0, 4, "hồ sơ không có bài đăng nào.");
+    else if (latest !== null && latest > 60) set("V.1. Tần Suất Đăng Bài Cập Nhật", 0, 4, `bài gần nhất cách đây ${latest} ngày (cũ hơn 60 ngày).`);
+    else if (postDays.filter(d => d <= 30).length >= 4) set("V.1. Tần Suất Đăng Bài Cập Nhật", 4, 4, "có từ 4 bài trở lên trong 30 ngày gần nhất.");
+    else if (latest !== null) set("V.1. Tần Suất Đăng Bài Cập Nhật", 2, 4, `bài gần nhất cách đây ${latest} ngày nhưng dưới 4 bài/30 ngày (đăng thưa).`);
+  }
+  const typeCount = Array.isArray(p.types) ? p.types.filter(t => typeof t === "string" && t.trim()).length : 0;
+  if (typeCount === 1) set("II.1. Danh Mục", 2, 5, `có danh mục chính "${String((p.types as unknown[])[0])}" nhưng không có danh mục phụ.`);
+  // Ảnh: chỉ dùng dữ kiện có/không; mức trừ cần xem chất lượng, logo hay mặt tiền không áp dụng.
+  set("IV.1. Ảnh Đại Diện & Ảnh Bìa", p.thumbnail ? 4 : 0, 4, p.thumbnail ? "hồ sơ có ảnh đại diện." : "hồ sơ không có ảnh đại diện.");
+  if (collected("photos")) {
+    const atmosphere = photoCats.some(c => /bầu không khí|không gian|atmosphere|vibe/i.test(c));
+    if (atmosphere) set("IV.2. Hình Ảnh Không Gian", 6, 6, "hồ sơ có album ảnh Bầu không khí.");
+  }
+  const reviewPhotos = rows(p.user_reviews).filter(r => Array.isArray(r.images) && r.images.length > 0).length;
+  if (reviewPhotos) set("IV.3. Tỷ Lệ Ảnh Khách Đăng - UGC", 5, 5, `${reviewPhotos} đánh giá mẫu có ảnh do khách đăng.`);
+  if (items.length) {
+    const priced = items.filter(i => typeof i.price === "string" && i.price.trim()).length;
+    const tier = typeof p.price === "string" && p.price.trim() !== "";
+    if (!priced) set("II.3. Minh Bạch Bảng Giá", 0, 4, `không món nào trong ${items.length} món có giá.`);
+    else if (priced < items.length) set("II.3. Minh Bạch Bảng Giá", 2, 4, `chỉ ${priced}/${items.length} món có giá.`);
+    else set("II.3. Minh Bạch Bảng Giá", tier ? 4 : 3, 4, `${priced}/${items.length} món có giá${tier ? "" : "; chưa chọn phân khúc giá"}.`);
+  }
+  if (dishes.length) {
+    const ratio = dishesWithPhoto / dishes.length;
+    set("II.4. Hình Đại Diện Từng Món Ăn", ratio === 0 ? 0 : ratio < 0.5 ? 2 : 4, 4, `${dishesWithPhoto}/${dishes.length} món có ảnh thực tế.`);
+  }
+  const descriptionLength = (ownerText || googleText).length;
+  if (!descriptionLength && kgOk) set("V.4. Giới Thiệu Doanh Nghiệp", 0, 6, "hồ sơ không có phần giới thiệu.");
+  else if (descriptionLength && descriptionLength < 100) set("V.4. Giới Thiệu Doanh Nghiệp", 3, 6, `phần giới thiệu chỉ ${descriptionLength} ký tự (dưới 100).`);
+
   return {
+    "Phạm vi chấm điểm": {
+      "Tiêu chí KHÔNG ĐÁNH GIÁ (không chấm, không trừ, loại khỏi điểm tối đa)": scope.excluded.map(e => `${e.pillar}.${e.name} (${e.max}đ): ${e.reason}`),
+      "Điểm tối đa được chấm theo trụ cột": (Object.keys(scope.maxByPillar) as Pillar[]).map(k => `${k}: ${scope.maxByPillar[k]}/${PILLAR_MAX[k]}`).join(" · "),
+      "Tổng điểm tối đa được chấm": scope.total,
+      "Điểm đã tính sẵn theo barem (dùng đúng số này)": preset.length ? preset : "Không có.",
+    },
     "Tên nhà hàng": label(p.title),
     "Loại hình": p.types,
-    "Giới thiệu của nhà hàng": label(p.description),
+    "Giới thiệu của nhà hàng": ownerText || googleText || (kgOk ? NONE : notEvaluated("không lấy được phần giới thiệu doanh nghiệp.")),
+    "Nguồn và độ dài phần giới thiệu": descriptionSource,
     // Nguồn hiện chưa có địa chỉ đã đối chiếu hành chính: không đưa địa chỉ thô cho AI sao chép.
-    "Địa chỉ": p.address ? "Có địa chỉ trên hồ sơ; chưa đối chiếu địa giới hoặc so sánh địa chỉ giữa các kênh. Không có căn cứ kết luận sai địa chỉ/NAP." : UNKNOWN,
+    "Địa chỉ": p.address ? "Có địa chỉ và vị trí ghim trên hồ sơ. Không đối chiếu địa giới hay địa chỉ giữa các kênh nên không kết luận sai địa chỉ/NAP." : NONE,
     "Điện thoại liên hệ": label(p.phone),
     "Trang web được ghi nhận": label(p.website),
+    "Mạng xã hội liên kết trên hồ sơ": rows(p.social_links).length ? rows(p.social_links).map(l => `${l.name}: ${l.link}`) : NONE,
     "Giờ mở cửa": rows(p.hours).map(h => ({ "Ngày": h.day, "Giờ": h.time })),
-    "Điểm sao của khách (thang 5)": p.rating ?? UNKNOWN,
-    "Tổng lượt đánh giá": p.reviews_count ?? UNKNOWN,
+    "Điểm sao của khách (thang 5)": p.rating ?? NONE,
+    "Tổng lượt đánh giá": p.reviews_count ?? NONE,
     "Phân bố đánh giá": rows(p.rating_summary).map(r => ({ "Số sao": r.stars, "Số lượt": r.amount })),
+    "Phản hồi của chủ quán với đánh giá": ownerResponses,
     "Khoảng giá": label(p.price),
     "Giá do khách báo cáo": rows(record(p.price_details).distribution).map(r => ({ "Mức giá": r.price, "Tỷ lệ": r.percentage, "Số khách": r.reported_count })),
     "Kênh đặt chỗ ghi nhận": rows(p.booking_links).map(l => ({ "Tên kênh": l.name, "Đường dẫn": l.link })),
-    "Giới hạn kiểm tra đặt chỗ": "Chỉ ghi nhận liên kết; chưa thử đặt bàn nên chưa đánh giá được khả năng hoàn tất đặt chỗ.",
     "Thực đơn dạng chữ": {
-      "Tình trạng": items.length ? `Ghi nhận ${items.length} món có tên dạng chữ; chưa xác minh độ đầy đủ và ngày cập nhật.` : UNKNOWN,
+      "Tình trạng": items.length && namesOnly
+        ? `Google Maps hiển thị ${items.length} món có tên dạng chữ (có tên món, số ảnh và giá nếu chủ quán niêm yết; Google không trả mô tả món).`
+        : items.length
+        ? `Có ${items.length} món có tên dạng chữ.`
+        : collected("dishes") ? "Không có món dạng chữ trên hồ sơ Google." : notEvaluated("không lấy được danh sách món."),
       "Số món có tên": items.length,
       "Số món có giá": items.filter(i => typeof i.price === "string" && i.price.trim()).length,
-      "Số món có mô tả": items.filter(i => typeof i.description === "string" && i.description.trim()).length,
+      "Số món có mô tả": namesOnly ? notEvaluated("Google không trả mô tả từng món.") : items.filter(i => typeof i.description === "string" && i.description.trim()).length,
       "Số nhóm có món": categories.filter(c => rows(c.items).length).length,
-      "Liên kết thực đơn": label(menu.link),
+      "Liên kết thực đơn": menuLinks.length === 1 ? menuLinks[0] : menuLinks.length ? menuLinks : NONE,
       "Nguồn liên kết": label(menu.source),
       "Số ảnh thực đơn": rows(menu.images).length,
-      "Giới hạn thu thập": "Chỉ đọc nội dung chữ có trong hồ sơ trả về. Chưa mở liên kết, chưa đọc chữ trong ảnh; không dùng lượng dữ liệu thu thập để kết luận độ đầy đủ của menu thực tế.",
       "Danh mục": categories.map(c => ({ "Nhóm món": c.title, "Các món": rows(c.items).map(i => ({ "Tên món": i.title, "Giá": i.price, "Mô tả": i.description })) })),
     },
-    "Món nổi bật ghi nhận": rows(menu.highlights).map(h => label(h.title)),
-    "Lưu ý về ảnh menu": "Ảnh thực đơn được đếm riêng với ảnh món nổi bật. Chưa xem ảnh nên chưa đánh giá độ rõ, giá và tính cập nhật.",
-    "Hình ảnh": { "Số ảnh thu thập": rows(p.images).length, "Có ảnh đại diện": p.thumbnail ? "Có" : UNKNOWN, "Nhãn ảnh": rows(p.images).map(i => label(i.title)), "Giới hạn": "Chỉ có nhãn ảnh, chưa xem trực tiếp chất lượng hình ảnh." },
+    "Món nổi bật ghi nhận": kgHighlights.length ? kgHighlights : highlights,
+    "Số món có ảnh thực tế": dishes.length ? `${dishesWithPhoto}/${dishes.length}` : items.length ? NONE : collected("dishes") ? "Không có món nào." : notEvaluated("không lấy được danh sách món kèm ảnh."),
+    "Hình ảnh": {
+      "Số ảnh lấy được": rows(p.images).length,
+      "Có ảnh đại diện": p.thumbnail ? "Có" : "Không",
+      "Nhãn ảnh": rows(p.images).map(i => label(i.title)),
+      "Danh mục album ảnh trên Google Maps": !collected("photos") ? notEvaluated("không lấy được album ảnh.") : photoCats.length ? photoCats : "Không có album ảnh.",
+    },
+    "Bài đăng cập nhật trên Google": updates,
     "Tiện ích ghi nhận": rows(p.extensions).flatMap(e => Array.isArray(e.items) ? e.items.filter(i => typeof i === "string") : []),
+    "Tiện ích Google ghi nhận là KHÔNG có": unsupported.length ? unsupported : NONE,
     "Nhận xét khách hàng (mẫu thu thập, không đại diện toàn bộ)": rows(p.user_reviews).map(r => ({ "Số sao": r.rating, "Thời điểm": r.date, "Nội dung": r.description })),
     "Địa điểm được Google gợi ý cùng (chưa xác minh là đối thủ trực tiếp)": rows(p.similar_places).map(s => ({ "Tên": s.title, "Số sao": s.rating, "Số đánh giá": s.reviews })),
-    "Quản lý hồ sơ": p.unclaimed === true ? "Nguồn hiển thị lời mời nhận quản lý; cần xác nhận với chủ nhà hàng." : "Chưa đủ căn cứ kết luận quyền quản lý hay trạng thái xác minh.",
+    "Quản lý hồ sơ": responded.length
+      ? "Chủ quán đang trả lời đánh giá, cho thấy hồ sơ đang được quản lý."
+      : p.unclaimed === true ? "Nguồn hiển thị lời mời nhận quản lý; cần xác nhận với chủ nhà hàng." : "Chưa đủ căn cứ kết luận quyền quản lý hay trạng thái xác minh.",
   };
 }
 
@@ -125,7 +372,7 @@ export interface AuditInput {
   attemptedKeySlots?: number[];
 }
 
-export const AUDIT_PROMPT_VERSION = "2026-10-21.1";
+export const AUDIT_PROMPT_VERSION = "2026-10-22.3";
 export const AUDIT_SYSTEM_INSTRUCTION = `Bạn là Chuyên gia Tư vấn Chiến lược F&B & Local SEO cao cấp, đồng hành cùng đội ngũ tư vấn GoDine.
 
 MỤC TIÊU:
@@ -142,7 +389,7 @@ VĂN PHONG & NGÒI BÚT (WRITER & ANALYST CALIBER):
 QUY TẮC TÍNH TOÁN & CHẤM ĐIỂM BẮT BUỘC:
 1. Tính toán điểm số chính xác 100%:
    - Điểm của từng trụ cột = Tổng điểm các tiêu chí con trong trụ cột đó.
-   - TỔNG ĐIỂM SỨC KHỎE GBP = Điểm Trụ cột I + II + III + IV + V (Tối đa 100 điểm). Tuyệt đối không để sai lệch phép cộng!
+   - TỔNG ĐIỂM SỨC KHỎE GBP = Điểm Trụ cột I + II + III + IV + V (tối đa bằng "Tổng điểm tối đa được chấm" trong hồ sơ). Tuyệt đối không để sai lệch phép cộng!
    - Tiêu chí 1 Trụ cột III (Điểm đánh giá trung bình): 4.5 – 5.0★ = 6đ; 4.0 – 4.4★ = 4đ; 3.5 – 3.9★ = 2đ; dưới 3.5★ = 0đ (ví dụ 4.4★ thì BẮT BUỘC là 4/6đ, không được cho 6/6đ).
    - Tiêu chí 4 Trụ cột III (Chất lượng phản hồi): Nếu quán không có phản hồi nào (Tiêu chí 3 bị 0/7đ), thì Tiêu chí 4 BẮT BUỘC là 0/6đ (trừ toàn bộ 6đ do chưa có phản hồi nào để đánh giá).
 2. Xếp loại sức khỏe hồ sơ:
@@ -159,6 +406,15 @@ QUY TẮC TÍNH TOÁN & CHẤM ĐIỂM BẮT BUỘC:
 4. Tôn trọng dữ liệu thật:
    - Không bịa đặt thông tin chưa có trong hồ sơ.
    - Không dùng thuật ngữ lập trình như null, undefined, JSON, API. Dùng ngôn ngữ tư vấn kinh doanh tự nhiên.
+5. Phạm vi chấm điểm (BẮT BUỘC):
+   - Mỗi dữ kiện trong hồ sơ là CÓ hoặc KHÔNG. "Không có" nghĩa là hồ sơ Google không có mục đó và bị trừ điểm theo barem.
+   - Tiêu chí thuộc danh sách "Tiêu chí KHÔNG ĐÁNH GIÁ" trong mục Phạm vi chấm điểm: không chấm, không trừ, ghi đúng một dòng theo mẫu "* **2. Số Hóa Menu - Text Menu (Không đánh giá):** Google trả tên món nhưng không trả mô tả từng món." (dùng số và tên thật của tiêu chí, lý do chép từ hồ sơ, không lặp lại tên tiêu chí), không viết thực trạng hay khuyến nghị dựa trên phỏng đoán.
+   - Không mô tả tiêu chí KHÔNG ĐÁNH GIÁ như thiếu sót (không viết "trống", "thiếu", "bỏ ngỏ"…) ở phần tổng quan, bảng điểm hay kế hoạch hành động; nếu cần nhắc thì ghi "chưa đánh giá được".
+   - Mức trừ cần dữ kiện mà hồ sơ không có (chất lượng/độ nét ảnh, link lỗi, thao tác đặt bàn trên điện thoại, NAP giữa các kênh, nút kêu gọi hành động của bài đăng, giờ đặc biệt) thì không áp dụng.
+   - Tiêu chí có trong "Điểm đã tính sẵn theo barem": dùng đúng số điểm đó, chỉ viết thực trạng, tác động và khuyến nghị theo lý do kèm theo.
+   - Giới thiệu doanh nghiệp từ 100 ký tự trở lên chỉ bị trừ khi nhồi từ khóa gượng ép; không trừ vì độ dài.
+   - Cột "Điểm tối đa" của từng trụ cột và dòng tổng dùng đúng số trong "Điểm tối đa được chấm theo trụ cột" và "Tổng điểm tối đa được chấm".
+   - Điểm sức khỏe hồ sơ (thang 100) = làm tròn (Tổng điểm đạt ÷ Tổng điểm tối đa được chấm × 100). Xếp loại theo điểm thang 100 này.
 
 KHUNG ĐIỂM CHẤM & MỨC TRỪ ĐIỂM CHI TIẾT (100 ĐIỂM):
 I. THÔNG TIN CƠ BẢN & TÍNH NHẤT QUÁN (Tối đa 20đ)
@@ -204,15 +460,16 @@ Báo cáo trình bày theo đúng định dạng Markdown sau (bắt đầu ngay
 ## Bảng điểm sức khỏe hồ sơ GBP
 | Hạng mục trụ cột | Điểm đạt | Điểm tối đa | Đánh giá tóm tắt từ chuyên gia |
 | :--- | :---: | :---: | :--- |
-| **I. Thông tin cơ bản & Tính nhất quán** | **X** | 20 | ... |
-| **II. Danh mục & Số hóa thực đơn** | **X** | 20 | ... |
-| **III. Uy tín xã hội & Danh tiếng** | **X** | 25 | ... |
-| **IV. Nội dung thị giác & Trải nghiệm không gian** | **X** | 15 | ... |
-| **V. Mức độ hoạt động & Tương tác định kỳ** | **X** | 20 | ... |
-| **TỔNG ĐIỂM SỨC KHỎE GBP** | **XX** | **100** | **XẾP LOẠI: [Xuất sắc / Tốt / Khá / Trung bình / Yếu] (Lý do)** |
+| **I. Thông tin cơ bản & Tính nhất quán** | **X** | Y | ... |
+| **II. Danh mục & Số hóa thực đơn** | **X** | Y | ... |
+| **III. Uy tín xã hội & Danh tiếng** | **X** | Y | ... |
+| **IV. Nội dung thị giác & Trải nghiệm không gian** | **X** | Y | ... |
+| **V. Mức độ hoạt động & Tương tác định kỳ** | **X** | Y | ... |
+| **TỔNG ĐIỂM SỨC KHỎE GBP** | **XX** | **YY** | **XẾP LOẠI: [Xuất sắc / Tốt / Khá / Trung bình / Yếu] (Điểm thang 100: ZZ; lý do)** |
+(Y, YY lấy từ mục Phạm vi chấm điểm; ZZ là điểm quy đổi thang 100.)
 
 ## Phân tích chi tiết 5 trụ cột & Barem trừ điểm
-### I. Thông tin cơ bản & Tính nhất quán (X/20 điểm)
+### I. Thông tin cơ bản & Tính nhất quán (X/Y điểm)
 * **1. Tên Doanh Nghiệp (X/4đ):** [Đạt chuẩn / Trừ Xđ — Lý do ngắn gọn]
   - **Thực trạng:** [Bằng chứng ghi nhận từ hồ sơ]
   - **Tác động & Khuyến nghị:** [Ảnh hưởng Local SEO và hành động cụ thể]
@@ -223,24 +480,24 @@ Báo cáo trình bày theo đúng định dạng Markdown sau (bắt đầu ngay
 * **4. Kênh Liên Hệ & Website (X/4đ):** ...
 * **5. Tiện Ích Thuộc Tính (X/3đ):** ...
 
-### II. Danh mục & Tối ưu hoá thực đơn / dịch vụ (X/20 điểm)
+### II. Danh mục & Tối ưu hoá thực đơn / dịch vụ (X/Y điểm)
 * **1. Danh Mục (X/5đ):** ...
 * **2. Số Hóa Menu - Text Menu (X/7đ):** ...
 * **3. Minh Bạch Bảng Giá (X/4đ):** ...
 * **4. Hình Đại Diện Từng Món Ăn (X/4đ):** ...
 
-### III. Uy tín xã hội & Danh tiếng (X/25 điểm)
+### III. Uy tín xã hội & Danh tiếng (X/Y điểm)
 * **1. Điểm Đánh Giá Trung Bình (X/6đ):** ...
 * **2. Số Lượng & Mật Độ Review Mới (X/6đ):** ...
 * **3. Tỷ Lệ & Tốc Độ Phản Hồi (X/7đ):** ...
 * **4. Chất Lượng Nội Dung Phản Hồi (X/6đ):** ...
 
-### IV. Nội dung thị giác & Trải nghiệm không gian (X/15 điểm)
+### IV. Nội dung thị giác & Trải nghiệm không gian (X/Y điểm)
 * **1. Ảnh Đại Diện & Ảnh Bìa (X/4đ):** ...
 * **2. Hình Ảnh Không Gian (X/6đ):** ...
 * **3. Tỷ Lệ Ảnh Khách Đăng - UGC (X/5đ):** ...
 
-### V. Mức độ hoạt động & Tương tác định kỳ (X/20 điểm)
+### V. Mức độ hoạt động & Tương tác định kỳ (X/Y điểm)
 * **1. Tần Suất Đăng Bài Cập Nhật (X/4đ):** ...
 * **2. Tính Năng Đặt Bàn / Đặt Chỗ (X/7đ):** ...
 * **3. Mục Hỏi & Đáp Chủ Động (X/3đ):** ...
@@ -257,7 +514,7 @@ Báo cáo trình bày theo đúng định dạng Markdown sau (bắt đầu ngay
 * **[Hạng mục hành động 1]:** ...
 * **[Hạng mục hành động 2]:** ...
 
-## Điểm sức khỏe hồ sơ: XX/100
+## Điểm sức khỏe hồ sơ: ZZ/100
 `;
 
 export function buildPrompt({ profile, currentAnalysis, messages }: AuditInput): string {

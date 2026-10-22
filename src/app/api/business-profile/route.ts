@@ -8,6 +8,7 @@ import type {
 } from "@/lib/types";
 import { serpApiSearch, SerpApiError } from "@/lib/serpapi";
 import { normalizeMenu } from "@/lib/menu";
+import { emptyEnrichment, enrichmentEnabled, fetchEnrichment, startDataIdCalls } from "@/lib/enrich";
 
 /** hours từ SerpAPI là mảng các object 1 khóa: [{"thứ năm": "06:00–23:00"}, ...] */
 function normalizeHours(raw: unknown): DayHours[] {
@@ -32,6 +33,7 @@ function normalizeHours(raw: unknown): DayHours[] {
   return [];
 }
 
+/** Dùng riêng cho `extensions` và `unsupported_extensions`; hai nhóm nghĩa ngược nhau, không được gộp. */
 function normalizeExtensions(raw: unknown): ExtensionGroup[] {
   if (!Array.isArray(raw)) return [];
   return raw.flatMap((entry) => {
@@ -63,6 +65,8 @@ function collectBookingLinks(pr: any): ActionLink[] {
   ));
   if (pr.booking_link) push("Trang đặt chỗ", pr.booking_link);
   for (const ol of pr.order_links || []) push(ol.name || "Đặt món", ol.link);
+  // Đặt món trực tuyến là kênh chuyển đổi, không phải thực đơn.
+  if (pr.order_online_link) push("Đặt món trực tuyến", pr.order_online_link);
   return links;
 }
 
@@ -106,6 +110,11 @@ export async function GET(request: NextRequest) {
     params.set("place_id", placeId);
   }
 
+  const startedAt = Date.now();
+  const enrichOn = enrichmentEnabled(process.env.SERPAPI_ENRICH);
+  // Review/bài đăng/ảnh chỉ cần data_id: chạy song song với lượt chính để giữ route dưới 10s của Netlify.
+  const early = enrichOn && dataId ? startDataIdCalls(dataId, serpApiSearch) : undefined;
+
   try {
     // Key do pool cấp; hết hạn mức thì tự xoay sang key kế tiếp.
     const data = await serpApiSearch(params, "business-profile");
@@ -113,10 +122,45 @@ export async function GET(request: NextRequest) {
     const pr = data.place_results || {};
     if (!pr.title) return NextResponse.json({ error: "Nguồn dữ liệu chưa trả về hồ sơ địa điểm này." }, { status: 404 });
 
+    const resolvedDataId = pr.data_id || dataId || "";
+
+    // Làm giàu song song qua key pool; lỗi từng nguồn chỉ khiến tiêu chí liên quan không được chấm (D-0113), không làm hỏng hồ sơ.
+    const enrich = enrichOn
+      ? await fetchEnrichment({ ...pr, data_id: resolvedDataId }, serpApiSearch, early, startedAt)
+      : emptyEnrichment();
+    const kg = enrich.kg;
+
+    const bookingLinks = collectBookingLinks(pr);
+    // KG và place_results thường trả cùng một kênh với URL khác tham số theo dõi: khử trùng theo cả tên kênh.
+    for (const link of kg?.booking_links || []) {
+      if (!bookingLinks.some((l) => l.link === link.link || l.name === link.name)) bookingLinks.push(link);
+    }
+
+    // Maps hiếm khi trả menu chữ; khi đó dùng danh sách món Google hiển thị (KG) làm thực đơn,
+    // đánh dấu nguồn: Google không trả giá/mô tả từng món nên Text Menu và Bảng giá không chấm (D-0113).
+    let menu = normalizeMenu(pr.menu);
+    const dishes = enrich.menu_highlights;
+    const menuOrigin = !menu?.categories.length && dishes.length ? ("google_dishes" as const) : undefined;
+    if (menuOrigin) {
+      menu = {
+        categories: [{ title: "Món trên Google Maps", items: dishes.map((d) => ({ title: d.title, price: d.price, description: "" })) }],
+        highlights: dishes.map((d) => ({ title: d.title, thumbnail: d.thumbnail })),
+        link: menu?.link || kg?.menu_links[0]?.link || "",
+        // Nhãn phải là nơi link dẫn tới (vd hum-dining.vn), không phải nơi lấy danh sách món.
+        source: menu?.link ? menu.source || "" : kg?.menu_links[0]?.name || "",
+        images: menu?.images || [],
+      };
+    }
+
+    const extensions = normalizeExtensions(pr.extensions);
+    const known = new Set(extensions.flatMap((g) => g.items));
+    const services = (kg?.service_options || []).filter((item) => !known.has(item));
+    if (services.length) extensions.push({ key: "Lựa chọn dịch vụ", items: services });
+
     const profile: BusinessProfile = {
       title: pr.title || "",
       place_id: pr.place_id || "",
-      data_id: pr.data_id || dataId || "",
+      data_id: resolvedDataId,
       address: pr.address || "",
       country: pr.country || "",
       plus_code: pr.plus_code || "",
@@ -127,25 +171,41 @@ export async function GET(request: NextRequest) {
         : data.search_metadata?.google_maps_url || "",
       thumbnail: pr.thumbnail || "",
       types: Array.isArray(pr.type) ? pr.type : pr.type ? [String(pr.type)] : [],
-      description: pr.description?.snippet || (typeof pr.description === "string" ? pr.description : ""),
+      // UI hiển thị `description`; brief cho AI tách riêng mô tả do doanh nghiệp tự viết.
+      description:
+        pr.description?.snippet ||
+        (typeof pr.description === "string" ? pr.description : "") ||
+        kg?.merchant_description ||
+        "",
+      merchant_description: kg?.merchant_description || "",
       rating: pr.rating ?? null,
       reviews_count: pr.reviews ?? null,
       rating_summary: Array.isArray(pr.rating_summary)
         ? [...pr.rating_summary].sort((a, b) => b.stars - a.stars)
         : [],
-      price: pr.price || "",
+      price: pr.price || kg?.price || "",
       price_details: pr.price_details?.distribution
         ? {
             distribution: pr.price_details.distribution,
             total_reported: pr.price_details.total_reported ?? 0,
           }
-        : null,
+        : kg?.price_details || null,
       open_state: pr.open_state || "",
       hours: normalizeHours(pr.hours),
       gps: pr.gps_coordinates || null,
-      booking_links: collectBookingLinks(pr),
-      menu: normalizeMenu(pr.menu),
-      extensions: normalizeExtensions(pr.extensions),
+      booking_links: bookingLinks,
+      menu,
+      menu_origin: menuOrigin,
+      menu_links: kg?.menu_links || [],
+      menu_highlights: enrich.menu_highlights,
+      extensions,
+      unsupported_extensions: normalizeExtensions(pr.unsupported_extensions),
+      social_links: kg?.social_links || [],
+      posts: enrich.posts,
+      photo_categories: enrich.photo_categories,
+      recent_reviews: enrich.recent_reviews,
+      relevant_reviews: enrich.relevant_reviews,
+      enrichment: enrich.status,
       images: (pr.images || [])
         .map((im: any) => ({ title: im.title || "", thumbnail: im.thumbnail || "" }))
         .filter((im: any) => im.thumbnail),

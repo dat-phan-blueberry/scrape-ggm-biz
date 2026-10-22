@@ -12,7 +12,8 @@ Deno.test("Tư liệu thiếu ở mọi cấp thành lời rõ nghĩa, không l�
     similar_places: [{ title: "Quán lân cận", rating: null, reviews: undefined }],
   } });
   if (/\b(?:null|undefined|NaN)\b|\[object Object\]|\[\]|internal-id|data_id/.test(prompt)) throw new Error("Lộ cách biểu diễn dữ liệu máy");
-  contains(prompt, ["Giới thiệu của nhà hàng: Chưa ghi nhận", "Khoảng giá: Chưa ghi nhận", "Điểm sao của khách (thang 5): 0", "Số lượt: 0", "Khách phản ánh phục vụ chậm", "chưa thử đặt bàn"]);
+  // D-0113: hồ sơ không làm giàu được → tiêu chí liên quan "Không đánh giá"; trường thiếu trong nguồn đã lấy → "Không có".
+  contains(prompt, ["Giới thiệu của nhà hàng: Không đánh giá", "Khoảng giá: Không có trên hồ sơ Google.", "Điểm sao của khách (thang 5): 0", "Số lượt: 0", "Khách phản ánh phục vụ chậm", "V.3. Mục Hỏi & Đáp Chủ Động (3đ)"]);
 });
 
 Deno.test("Ghi chú menu giữ tên, giá, mô tả nhiều dòng và nhóm món; không biến giá 0 thành thiếu", () => {
@@ -20,13 +21,13 @@ Deno.test("Ghi chú menu giữ tên, giá, mô tả nhiều dòng và nhóm món
     { title: "Món chính", items: [{ title: "Cá rô đồng kho", price: "120.000đ/phần", description: "Kho tộ\nĂn kèm cơm" }] },
     { title: "Đồ uống", items: [{ title: "Nước lọc", price: "0đ", description: null }] },
   ] } } });
-  contains(prompt, ["Số món có tên: 2", "Số món có giá: 2", "Số món có mô tả: 1", "Nhóm món: Món chính", "Tên món: Cá rô đồng kho", "Giá: 120.000đ/phần", "Mô tả: Kho tộ", "Ăn kèm cơm", "Nhóm món: Đồ uống", "Giá: 0đ", "Mô tả: Chưa ghi nhận"]);
+  contains(prompt, ["Số món có tên: 2", "Số món có giá: 2", "Số món có mô tả: 1", "Nhóm món: Món chính", "Tên món: Cá rô đồng kho", "Giá: 120.000đ/phần", "Mô tả: Kho tộ", "Ăn kèm cơm", "Nhóm món: Đồ uống", "Giá: 0đ", "Mô tả: Không có trên hồ sơ Google."]);
   if (prompt.includes('"categories"') || prompt.includes('"description"')) throw new Error("Lộ tên trường trong tư liệu");
 });
 
-Deno.test("Chỉ có ảnh/link menu giữ nguồn và giới hạn quan sát, không kết luận thực đơn trống", () => {
+Deno.test("Chỉ có ảnh/link menu mà không lấy được danh sách món: Text Menu không chấm, không kết luận thực đơn trống", () => {
   const prompt = buildPrompt({ profile: { menu: { categories: [], link: "https://example.test/menu", source: "Nhà hàng", images: [{ image: "menu.jpg" }] } } });
-  contains(prompt, ["Tình trạng: Chưa ghi nhận", "Liên kết thực đơn: https://example.test/menu", "Nguồn liên kết: Nhà hàng", "Số ảnh thực đơn: 1", "Chưa mở liên kết, chưa đọc chữ trong ảnh"]);
+  contains(prompt, ["Tình trạng: Không đánh giá — không lấy được danh sách món.", "Liên kết thực đơn: https://example.test/menu", "Nguồn liên kết: Nhà hàng", "Số ảnh thực đơn: 1", "II.2. Số Hóa Menu - Text Menu (7đ)"]);
   if (prompt.includes("quán không có menu") || prompt.includes("Menu trống")) throw new Error("Biến giới hạn thu thập thành thiếu sót nhà hàng");
 });
 

@@ -392,7 +392,11 @@ export function MenuSection({ profile }: { profile: BusinessProfile }) {
   return (
     <Section title="Thực đơn" icon={IconUtensils} meta={`${items.length} món dạng chữ · ${menu.images?.length || 0} ảnh menu`}>
       <p className="mb-3 text-[0.83rem] leading-relaxed text-soft">
-        {items.length ? `Đã thu thập ${items.length} tên món, ${items.filter(i => i.price).length} món có giá và ${items.filter(i => i.description).length} món có mô tả.` : "Chưa thu thập được danh sách món dạng chữ. Cần xem thực đơn trực tiếp trước khi đánh giá tên món, giá, mô tả và cách nhóm món."}
+        {items.length && profile.menu_origin === "google_dishes"
+          ? `Google Maps hiển thị ${items.length} món trong mục thực đơn của hồ sơ, ${items.filter(i => i.price).length} món có giá. Google không trả mô tả từng món nên tiêu chí Text Menu không được chấm.`
+          : items.length ? `Có ${items.length} tên món, ${items.filter(i => i.price).length} món có giá và ${items.filter(i => i.description).length} món có mô tả.`
+          : profile.enrichment?.dishes === "ok" ? "Hồ sơ Google không có món dạng chữ."
+          : "Không lấy được danh sách món từ Google nên tiêu chí Text Menu không được chấm."}
       </p>
       {menu.link && <a href={menu.link} target="_blank" rel="noopener noreferrer" className="mb-3 inline-block text-sm font-medium text-moss-deep underline">Mở thực đơn{menu.source ? ` · ${menu.source}` : ""}</a>}
       {!!menu.images?.length && <div className="mb-4 flex gap-3 overflow-x-auto">
@@ -454,7 +458,7 @@ export function MenuSection({ profile }: { profile: BusinessProfile }) {
         </div>
       )}
       <p className="mt-2 font-mono text-[0.66rem] text-soft">
-        * Thông tin do nguồn dữ liệu trả về; chưa xác minh độ đầy đủ, ngày cập nhật hoặc nội dung trong ảnh và liên kết.
+        * Thông tin lấy từ hồ sơ Google Maps; không đọc nội dung trong ảnh thực đơn và liên kết ngoài.
       </p>
     </Section>
   );

@@ -53,6 +53,26 @@ export interface PlaceImage {
   thumbnail: string;
 }
 
+export interface PlacePost {
+  /** ISO 8601 khi nguồn có; dùng để tính độ mới của bài đăng */
+  iso_date: string;
+  date: string;
+  snippet: string;
+  link: string;
+  has_image: boolean;
+}
+
+/** Đánh giá mới nhất kèm phản hồi của chủ quán (google_maps_reviews, sort newestFirst) */
+export interface RecentReview {
+  rating: number | null;
+  date: string;
+  iso_date: string;
+  snippet: string;
+  response: { date: string; iso_date: string; snippet: string } | null;
+}
+
+export type EnrichmentStatus = "ok" | "failed" | "skipped" | "mismatch";
+
 export interface UserReview {
   username: string;
   rating: number;
@@ -129,6 +149,27 @@ export interface BusinessProfile {
   } | null;
   similar_places: SimilarPlace[];
   unclaimed: boolean | null;
+  // Các trường làm giàu từ SerpAPI (Knowledge Graph theo ludocid, reviews, posts, photos).
+  // Tùy chọn để hồ sơ đã lưu trước bản này vẫn hợp lệ.
+  merchant_description?: string;
+  menu_links?: ActionLink[];
+  /** Danh sách món Google hiển thị (Knowledge Graph) — chỉ có tên, số ảnh, số review nhắc tới */
+  menu_highlights?: Array<{ title: string; photos: number | null; reviews: number | null; thumbnail: string; price: string }>;
+  /** "google_dishes": thực đơn dựng từ danh sách món Google, nguồn không trả giá và mô tả */
+  menu_origin?: "google_dishes";
+  /** Thuộc tính Google ghi nhận là quán KHÔNG có — không được gộp vào `extensions` */
+  unsupported_extensions?: ExtensionGroup[];
+  social_links?: ActionLink[];
+  posts?: PlacePost[];
+  photo_categories?: string[];
+  recent_reviews?: RecentReview[];
+  /** Mẫu "nổi bật" (sort mặc định) — gồm review cũ hơn, dùng tính tỷ lệ phản hồi */
+  relevant_reviews?: RecentReview[];
+  /** "ok" + rỗng = hồ sơ không có; khác "ok" = không lấy được → tiêu chí liên quan không chấm (D-0113) */
+  enrichment?: Record<"knowledge_graph" | "reviews" | "posts" | "photos", EnrichmentStatus> & {
+    /** Khối món của Google lúc hiện lúc không: "ok" chỉ khi thật sự lấy được danh sách món */
+    dishes?: EnrichmentStatus;
+  };
 }
 
 export interface ChatMessage {
