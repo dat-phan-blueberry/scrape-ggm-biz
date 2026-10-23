@@ -199,8 +199,15 @@ export async function fetchEnrichment(pr: Record<string, unknown>, search: Searc
   // Knowledge Graph. Thiếu thì thử bản tiếng Anh một lần; vẫn thiếu là "không lấy được", không phải "không có".
   let dishes = verified?.kg ? normalizeMenuHighlights(kgRes?.data.menu_highlights) : [];
   const remaining = ENRICH_BUDGET_MS - (Date.now() - startedAt);
+  // Không ra KG theo ludocid (Google trả AI Overview) thì tra theo kgmid = `provider_id` của Maps,
+  // ổn định hơn; đã có KG mà thiếu món thì thử bản tiếng Anh.
+  const kgmid = text(pr.provider_id);
+  const byKgmid = !verified?.kg && kgmid.startsWith("/g/");
   if (cid && placeId && (!verified?.kg || !dishes.length) && remaining >= RETRY_MIN_MS) {
-    const retry = await call(search, "enrich-kg-en", params({ engine: "google", q: text(pr.title), ludocid: cid, hl: "en", gl: "vn" }), Math.min(ENRICH_TIMEOUT_MS, remaining));
+    const retryParams = byKgmid
+      ? params({ engine: "google", q: text(pr.title), kgmid, hl: "vi", gl: "vn" })
+      : params({ engine: "google", q: text(pr.title), ludocid: cid, hl: "en", gl: "vn" });
+    const retry = await call(search, byKgmid ? "enrich-kg-kgmid" : "enrich-kg-en", retryParams, Math.min(ENRICH_TIMEOUT_MS, remaining));
     const again = retry.ok ? verifiedKnowledgeGraph(retry.data, placeId) : null;
     if (again?.kg) {
       if (!verified?.kg) verified = again;

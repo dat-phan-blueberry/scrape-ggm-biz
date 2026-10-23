@@ -12,3 +12,7 @@ tests/results/
 
 # Fastify AI Gateway (quan ly doc lap tai repo github.com/dat-phan-blueberry/ai-gateway)
 ai-gateway/
+
+# Extension Chrome (quan ly doc lap tai repo public github.com/dat-phan-blueberry/biz-profile-audit-ext)
+biz-profile-audit-ext/
+

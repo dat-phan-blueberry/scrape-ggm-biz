@@ -89,7 +89,7 @@ Deno.test("Không lấy được phản hồi/bài đăng thì tiêu chí không
 Deno.test("Phạm vi chấm: đủ nguồn + thực đơn từ danh sách món + tiện ích lẻ → loại Tiện ích, Text Menu và Q&A, tối đa 87", () => {
   const scope = scoringScope({ enrichment: { knowledge_graph: "ok", reviews: "ok", posts: "ok", photos: "ok" }, menu_origin: "google_dishes",
     menu: { categories: [{ title: "Món", items: [{ title: "Pad Thai" }] }] }, menu_highlights: [{ title: "Pad Thai", photos: 3 }], merchant_description: "x", types: ["Nhà hàng chay", "Nhà hàng Việt Nam"] });
-  equal(scope.excluded.map(e => `${e.pillar}.${e.name}`), ["I.5. Tiện Ích Thuộc Tính", "II.2. Số Hóa Menu - Text Menu", "V.3. Mục Hỏi & Đáp Chủ Động"]);
+  equal(scope.excluded.map(e => `${e.pillar}.${e.name}`), ["I.5. Tiện Ích Thuộc Tính", "II.2. Số Hóa Menu - Text Menu"]);
   equal(scope.maxByPillar, { I: 17, II: 13, III: 25, IV: 15, V: 17 });
   equal(scope.total, 87);
   // Có nhóm tiện ích chính (vd dining_options) thì vẫn chấm I.5.
@@ -167,7 +167,7 @@ Deno.test("Điểm tính sẵn theo barem: sao, bài đăng >60 ngày, phản h�
     "bỏ trống 1 đánh giá 1–2★",
     "V.1. Tần Suất Đăng Bài Cập Nhật: 0/4đ — bài gần nhất cách đây 88 ngày (cũ hơn 60 ngày).",
     "II.4. Hình Đại Diện Từng Món Ăn: 4/4đ — 2/3 món có ảnh thực tế.",
-    "V.4. Giới Thiệu Doanh Nghiệp: 3/6đ — phần giới thiệu chỉ 14 ký tự (dưới 100).",
+    "V.3. Giới Thiệu Doanh Nghiệp: 3/6đ — phần giới thiệu chỉ 14 ký tự (dưới 100).",
   ]);
   // Tiêu chí đã bị loại (không lấy được bài đăng) thì không được có điểm tính sẵn.
   lacks(buildPrompt({ profile: { enrichment: { posts: "failed" }, posts: [] } }), ["V.1. Tần Suất Đăng Bài Cập Nhật: 0/4đ"]);
@@ -189,7 +189,7 @@ Deno.test("Khối món của Google lúc có lúc không: thử lại bản ti�
   const missing = await fetchEnrichment(pr, async (_p: URLSearchParams, tag: string) => tag.startsWith("enrich-kg") ? kg : {});
   equal(missing.status, { knowledge_graph: "ok", reviews: "ok", posts: "ok", photos: "ok", dishes: "failed" });
   const scope = scoringScope({ enrichment: missing.status, merchant_description: "Quán chay", types: ["Nhà hàng chay"] });
-  equal(scope.excluded.map(e => `${e.pillar}.${e.name}`), ["I.5. Tiện Ích Thuộc Tính", "II.2. Số Hóa Menu - Text Menu", "II.3. Minh Bạch Bảng Giá", "II.4. Hình Đại Diện Từng Món Ăn", "V.3. Mục Hỏi & Đáp Chủ Động"]);
+  equal(scope.excluded.map(e => `${e.pillar}.${e.name}`), ["I.5. Tiện Ích Thuộc Tính", "II.2. Số Hóa Menu - Text Menu", "II.3. Minh Bạch Bảng Giá", "II.4. Hình Đại Diện Từng Món Ăn"]);
   contains(buildPrompt({ profile: { enrichment: missing.status } }), ["Tình trạng: Không đánh giá — không lấy được danh sách món."]);
 });
 
@@ -271,4 +271,17 @@ Deno.test("Điểm tính sẵn: danh mục chỉ 1 mục, ảnh đại diện, a
   ]);
   // Không lấy được danh mục thì không chấm (Google luôn có danh mục chính).
   equal(scoringScope({ types: [] }).excluded.some(e => e.name === "1. Danh Mục"), true);
+});
+
+Deno.test("Không ra KG theo ludocid thì tra theo kgmid (provider_id) của Maps", async () => {
+  const seen: Array<{ tag: string; kgmid: string | null }> = [];
+  const result = await fetchEnrichment({ ...pr, provider_id: "/g/11ysx9s4bp" }, async (p: URLSearchParams, tag: string) => {
+    seen.push({ tag, kgmid: p.get("kgmid") });
+    if (tag === "enrich-kg") return { ai_overview: {} };
+    if (tag === "enrich-kg-kgmid") return { knowledge_graph: { place_id: "ChIJ-dung", merchant_description: "Ẩm thực lai Á" } };
+    return {};
+  });
+  equal(seen.find(s => s.tag === "enrich-kg-kgmid")?.kgmid, "/g/11ysx9s4bp");
+  equal(result.status.knowledge_graph, "ok");
+  equal(result.kg?.merchant_description, "Ẩm thực lai Á");
 });

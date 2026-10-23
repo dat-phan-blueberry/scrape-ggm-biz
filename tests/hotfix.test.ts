@@ -118,7 +118,9 @@ Deno.test("Hotfix: chat JSON/SSE nhận bản sửa khác tiêu đề, không đ
 
 Deno.test("Hotfix: prompt đầy đủ 5 trụ cột, Text Menu, 100 điểm và chat", () => {
   const prompt = buildPrompt({ profile: {}, currentAnalysis: report, messages: [{ role: "user", content: "Rút ngắn" }] });
-  for (const rule of ["Text Menu", "100 ĐIỂM", "5 Trụ cột", "Bảng điểm sức khỏe hồ sơ GBP", "Kế hoạch hành động 30 ngày"]) equal(AUDIT_SYSTEM_INSTRUCTION.includes(rule), true);
+  for (const rule of ["Text Menu", "QUY ĐỔI VỀ THANG 100", "5 Trụ cột - 18 Tiêu chí", "Bảng điểm sức khỏe hồ sơ GBP", "Kế hoạch hành động 30 ngày"]) equal(AUDIT_SYSTEM_INSTRUCTION.includes(rule), true);
+  // D-0115: Google ngừng Q&A nên tiêu chí Hỏi & Đáp đã bỏ khỏi khung.
+  equal(/Hỏi & Đáp|Q&A/.test(AUDIT_SYSTEM_INSTRUCTION), false);
   equal(prompt.includes("TOÀN BỘ báo cáo đã sửa"), true);
   equal(prompt.includes("Trả JSON"), false);
 });

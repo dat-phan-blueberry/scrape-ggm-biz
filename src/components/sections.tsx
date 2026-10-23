@@ -144,6 +144,21 @@ export function HoursRail({ profile }: { profile: BusinessProfile }) {
           </tbody>
         </table>
       )}
+      {(profile as { special_hours?: string[] }).special_hours &&
+        (profile as { special_hours?: string[] }).special_hours!.length > 0 && (
+          <div className="mt-3 border-t border-line pt-2.5">
+            <p className="wide mb-1.5 font-mono text-[0.62rem] uppercase tracking-[0.14em] text-soft">
+              Giờ đặc biệt / Ngày lễ
+            </p>
+            <ul className="space-y-1 font-mono text-[0.74rem] text-soft">
+              {(profile as { special_hours?: string[] }).special_hours!.map((sh, idx) => (
+                <li key={idx} className="flex justify-between gap-2">
+                  <span>{sh}</span>
+                </li>
+              ))}
+            </ul>
+          </div>
+        )}
     </RailCard>
   );
 }
@@ -282,7 +297,7 @@ export function PriceRail({ profile }: { profile: BusinessProfile }) {
 }
 
 export function AmenitiesRail({ profile }: { profile: BusinessProfile }) {
-  if (profile.extensions.length === 0) return null;
+  if (profile.extensions.length === 0 && (!profile.unsupported_extensions || profile.unsupported_extensions.length === 0)) return null;
   return (
     <RailCard title="Tiện ích & dịch vụ" icon={IconUsers}>
       <div className="space-y-3">
@@ -298,6 +313,24 @@ export function AmenitiesRail({ profile }: { profile: BusinessProfile }) {
             </div>
           </div>
         ))}
+        {profile.unsupported_extensions && profile.unsupported_extensions.length > 0 && (
+          <div className="border-t border-line pt-2">
+            <p className="wide mb-1.5 font-mono text-[0.62rem] uppercase tracking-[0.14em] text-soft">
+              Không có / Không hỗ trợ
+            </p>
+            {profile.unsupported_extensions.map((g) => (
+              <div key={`unsupported-${g.key}`} className="mb-2">
+                <div className="flex flex-wrap gap-1.5">
+                  {g.items.map((item, i) => (
+                    <Chip key={i}>
+                      <span className="line-through opacity-70">{item}</span>
+                    </Chip>
+                  ))}
+                </div>
+              </div>
+            ))}
+          </div>
+        )}
       </div>
     </RailCard>
   );
@@ -392,7 +425,9 @@ export function MenuSection({ profile }: { profile: BusinessProfile }) {
   return (
     <Section title="Thực đơn" icon={IconUtensils} meta={`${items.length} món dạng chữ · ${menu.images?.length || 0} ảnh menu`}>
       <p className="mb-3 text-[0.83rem] leading-relaxed text-soft">
-        {items.length && profile.menu_origin === "google_dishes"
+        {(profile as { menu_source_note?: string }).menu_source_note === "maps_logged_in"
+          ? `Đã thu thập ${items.length} món chữ qua Chrome Extension (Google Maps đăng nhập).`
+          : items.length && profile.menu_origin === "google_dishes"
           ? `Google Maps hiển thị ${items.length} món trong mục thực đơn của hồ sơ, ${items.filter(i => i.price).length} món có giá. Google không trả mô tả từng món nên tiêu chí Text Menu không được chấm.`
           : items.length ? `Có ${items.length} tên món, ${items.filter(i => i.price).length} món có giá và ${items.filter(i => i.description).length} món có mô tả.`
           : profile.enrichment?.dishes === "ok" ? "Hồ sơ Google không có món dạng chữ."

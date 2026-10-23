@@ -17,6 +17,7 @@ import {
   Chip,
   DossierSkeleton,
   IconArrow,
+  IconCompass,
   IconPin,
   IconSearch,
   IconWarn,
@@ -24,6 +25,20 @@ import {
   ScaleRule,
   Stars,
 } from "@/components/ui";
+import {
+  COLLECT_SECTION_LABELS,
+  collectMissingWithProgress,
+  detectExtension,
+  isExtensionOutdated,
+  mergeExtensionData,
+  missingSections,
+  type CollectSection,
+} from "@/lib/extension-bridge";
+
+import { ExtensionPanel } from "@/components/extension-install";
+import { compareVersions, EXTENSION_RELEASES_PAGE, type ExtensionRelease } from "@/lib/extension-release";
+
+type CollectRows = Partial<Record<CollectSection, { status: "pending" | "running" | "done" | "failed"; detail: string }>>;
 import {
   AiAuditSection,
   AmenitiesRail,
@@ -61,6 +76,18 @@ export default function HomePage() {
   const [saveWarning, setSaveWarning] = useState("");
   const [currentUser, setCurrentUser] = useState<string | null>(null);
 
+  const [extensionInstalled, setExtensionInstalled] = useState<boolean | null>(null);
+  const [extensionVersion, setExtensionVersion] = useState<string | undefined>();
+  const [checkingExtension, setCheckingExtension] = useState(false);
+  const [extensionRelease, setExtensionRelease] = useState<ExtensionRelease | null>(null);
+  const [collectingMissing, setCollectingMissing] = useState(false);
+  const [collectError, setCollectError] = useState<string | null>(null);
+  const [collectSuccess, setCollectSuccess] = useState<string | null>(null);
+  const [collectRows, setCollectRows] = useState<CollectRows>({});
+  const [collectStage, setCollectStage] = useState("");
+  const [collectStartedAt, setCollectStartedAt] = useState(0);
+  const [collectNow, setCollectNow] = useState(0);
+
   const inputRef = useRef<HTMLInputElement>(null);
   const boxRef = useRef<HTMLDivElement>(null);
   const debounceRef = useRef<ReturnType<typeof setTimeout> | null>(null);
@@ -87,6 +114,81 @@ export default function HomePage() {
       })
       .catch(() => {});
   }, []);
+
+  /* ---------- Phát hiện Extension Địa Bạ ---------- */
+
+  const recheckExtension = useCallback(() => {
+    setCheckingExtension(true);
+    detectExtension()
+      .then((res) => {
+        setExtensionInstalled(res.installed);
+        setExtensionVersion(res.version);
+      })
+      .finally(() => setCheckingExtension(false));
+  }, []);
+
+  // Kiểm tra khi mở trang và mỗi lần quay lại tab (sau khi sale cài/cập nhật extension ở chrome://extensions).
+  useEffect(() => {
+    recheckExtension();
+    const onFocus = () => recheckExtension();
+    window.addEventListener("focus", onFocus);
+    return () => window.removeEventListener("focus", onFocus);
+  }, [recheckExtension]);
+
+  // Bản extension mới nhất trên GitHub Releases: nút tải + nhắc cập nhật.
+  useEffect(() => {
+    fetch("/api/extension-release")
+      .then((r) => r.json())
+      .then((d) => setExtensionRelease(d?.release ?? null))
+      .catch(() => {});
+  }, []);
+
+  const extensionReady = extensionInstalled === true && !isExtensionOutdated(extensionVersion);
+  const extensionUpdateAvailable =
+    extensionReady && !!extensionRelease && !!extensionVersion && compareVersions(extensionVersion, extensionRelease.version) < 0;
+
+  // Tick mỗi giây khi đang thu thập để hiện thời gian đã chạy.
+  useEffect(() => {
+    if (!collectingMissing) return;
+    const t = setInterval(() => setCollectNow(Date.now()), 1000);
+    return () => clearInterval(t);
+  }, [collectingMissing]);
+
+  const handleCollectMissing = async () => {
+    if (!profile || !profile.maps_link || collectingMissing) return;
+    const sections = missingSections(profile);
+    const targets = sections.length ? sections : (["menu", "attributes", "special_hours"] as CollectSection[]);
+    setCollectingMissing(true);
+    setCollectError(null);
+    setCollectSuccess(null);
+    setCollectStage("Đang kết nối extension…");
+    setCollectStartedAt(Date.now());
+    setCollectNow(Date.now());
+    setCollectRows(Object.fromEntries(targets.map((s) => [s, { status: "pending", detail: "Chờ" }])) as CollectRows);
+    try {
+      const res = await collectMissingWithProgress(profile.maps_link, targets, (p) => {
+        if (p.stage !== "section" && p.detail) setCollectStage(p.detail);
+        if (p.stage === "section" && p.section) {
+          setCollectStage(`Đang thu thập: ${COLLECT_SECTION_LABELS[p.section]}`);
+          setCollectRows((rows) => ({ ...rows, [p.section!]: { status: p.status || "running", detail: p.detail || "" } }));
+        }
+      });
+      // Mục chưa có trạng thái cuối khi phiên kết thúc → không lấy được.
+      setCollectRows((rows) => Object.fromEntries(Object.entries(rows).map(([k, v]) =>
+        [k, v.status === "done" || v.status === "failed" ? v : { status: "failed", detail: res.errors?.[0] || "Không lấy được" }])) as CollectRows);
+      if (res.ok && res.data && Object.keys(res.data).length) {
+        setProfile((prev) => (prev ? mergeExtensionData(prev, res.data!) : prev));
+        setCollectSuccess("Đã bổ sung dữ liệu từ Google Maps vào hồ sơ.");
+      } else {
+        setCollectError(res.errors?.[0] || "Không lấy được dữ liệu từ Google Maps.");
+      }
+    } catch (err) {
+      setCollectError((err as Error).message || "Lỗi khi kết nối extension.");
+    } finally {
+      setCollectingMissing(false);
+      setCollectStage("");
+    }
+  };
 
   const handleLogout = async () => {
     try {
@@ -677,6 +779,93 @@ export default function HomePage() {
                 }
               />
             </div>
+
+            {/* --- Khối Cào Bổ Sung từ Chrome Extension --- */}
+            {extensionUpdateAvailable && (
+              <ExtensionPanel
+                mode="update"
+                installedVersion={extensionVersion}
+                release={extensionRelease}
+                releasesPage={EXTENSION_RELEASES_PAGE}
+                checking={checkingExtension}
+                onRecheck={recheckExtension}
+              />
+            )}
+            {extensionReady ? (
+              <div className="rise rise-1 mt-6 flex flex-wrap items-center justify-between gap-4 rounded-xl border border-moss/30 bg-moss/5 p-4">
+                <div className="flex items-center gap-3">
+                  <span className="flex h-9 w-9 shrink-0 items-center justify-center rounded-lg bg-moss text-paper">
+                    <IconCompass className="h-5 w-5" />
+                  </span>
+                  <div>
+                    <p className="text-[0.875rem] font-semibold text-ink">
+                      Thu thập phần còn thiếu từ Google Maps
+                    </p>
+                    <p className="text-[0.75rem] text-soft">
+                      {missingSections(profile).length
+                        ? `Cần lấy thêm: ${missingSections(profile).map((s) => COLLECT_SECTION_LABELS[s]).join(" · ")}. Mở Google Maps bằng tài khoản đã đăng nhập.`
+                        : "Đã đủ các mục từ Google Maps. Bấm để thu thập lại."}
+                    </p>
+                  </div>
+                </div>
+                <div className="flex items-center gap-3">
+                  <button
+                    onClick={handleCollectMissing}
+                    disabled={collectingMissing || !profile.maps_link}
+                    className="inline-flex items-center gap-2 rounded-lg bg-moss px-4 py-2 text-[0.83rem] font-medium text-paper transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    {collectingMissing ? (
+                      <>
+                        <span className="h-3.5 w-3.5 animate-spin rounded-full border-2 border-paper border-t-transparent" />
+                        Đang thu thập… {Math.max(0, Math.round((collectNow - collectStartedAt) / 1000))}s
+                      </>
+                    ) : (
+                      "Thu thập phần còn thiếu từ Google Maps"
+                    )}
+                  </button>
+                </div>
+                {Object.keys(collectRows).length > 0 && (
+                  <div className="w-full rounded-lg border border-line bg-card/70 p-3">
+                    {collectingMissing && collectStage && (
+                      <p className="mb-2 text-[0.75rem] text-soft">{collectStage}</p>
+                    )}
+                    <ul className="space-y-1.5">
+                      {(Object.keys(collectRows) as CollectSection[]).map((s) => {
+                        const row = collectRows[s]!;
+                        const icon = row.status === "done" ? "✓" : row.status === "failed" ? "✕" : row.status === "running" ? "…" : "○";
+                        const tone = row.status === "done" ? "text-moss-deep" : row.status === "failed" ? "text-pin" : row.status === "running" ? "text-ink" : "text-soft";
+                        return (
+                          <li key={s} className={`flex items-start gap-2 text-[0.78rem] ${tone}`}>
+                            <span className={`w-4 shrink-0 text-center font-mono ${row.status === "running" ? "animate-pulse" : ""}`}>{icon}</span>
+                            <span className="font-medium">{COLLECT_SECTION_LABELS[s]}</span>
+                            <span className="text-soft">— {row.detail}</span>
+                          </li>
+                        );
+                      })}
+                    </ul>
+                  </div>
+                )}
+                {collectSuccess && (
+                  <p className="w-full text-[0.78rem] font-medium text-moss-deep">
+                    ✓ {collectSuccess}
+                  </p>
+                )}
+                {collectError && (
+                  <p className="w-full text-[0.78rem] font-medium text-pin">
+                    ⚠ {collectError}
+                  </p>
+                )}
+              </div>
+            ) : extensionInstalled !== null ? (
+              <ExtensionPanel
+                mode={extensionInstalled ? "required-update" : "install"}
+                installedVersion={extensionVersion}
+                release={extensionRelease}
+                releasesPage={EXTENSION_RELEASES_PAGE}
+                checking={checkingExtension}
+                onRecheck={recheckExtension}
+              />
+            ) : null}
 
             {/* --- Lưới hồ sơ --- */}
             <div className="rise rise-2 mt-10 grid gap-10 lg:grid-cols-[minmax(0,1fr)_330px]">
