@@ -123,6 +123,8 @@ export interface CollectProgress {
   section?: CollectSection;
   status?: "running" | "done" | "failed";
   detail?: string;
+  /** Tóm tắt cấu trúc trang Maps khi mục này lỗi (extension diagnose()) — để dev sửa script. */
+  diag?: Record<string, unknown>;
 }
 
 /** Token gọi thẳng AI Gateway (do /api/ai-token ký); dùng lại tới khi còn dưới 1 phút. */
@@ -137,14 +139,16 @@ async function getGatewayToken(force = false) {
   return data as { gatewayUrl: string; token: string; expiresAt: number };
 }
 
-/** Mỗi lượt AI tối đa 24s (extension tự bỏ ở 25s). Không còn đi qua hàm Netlify nên không bị giới hạn ~10s. */
-const GATEWAY_CALL_TIMEOUT_MS = 24_000;
+/** Mỗi lượt AI tối đa 30s (extension chờ 33s). Không đi qua hàm Netlify nên không bị giới hạn ~10s. */
+const GATEWAY_CALL_TIMEOUT_MS = 30_000;
+
+type LlmRelayResult = { ok: boolean; data?: unknown; error?: string; status?: number; retryAfterSeconds?: number; quotaPeriod?: "minute" | "day" };
 
 /**
  * AI fallback của extension: trình duyệt gọi thẳng AI Gateway (Koyeb) bằng token ngắn hạn.
  * Netlify chỉ ký token (vài ms) sau khi kiểm phiên đăng nhập; key gateway không rời máy chủ.
  */
-async function askExtensionLlm(body: unknown): Promise<{ ok: boolean; data?: unknown; error?: string }> {
+async function askExtensionLlm(body: unknown): Promise<LlmRelayResult> {
   try {
     for (let attempt = 0; attempt < 2; attempt++) {
       const { gatewayUrl, token } = await getGatewayToken(attempt > 0);
@@ -156,7 +160,17 @@ async function askExtensionLlm(body: unknown): Promise<{ ok: boolean; data?: unk
       });
       const data = await res.json().catch(() => null);
       if (res.status === 401 && data?.tokenExpired && attempt === 0) continue; // token hết hạn giữa chừng → xin token mới, thử lại 1 lần
-      if (!res.ok) return { ok: false, error: `AI Gateway HTTP ${res.status}${data?.error ? `: ${String(data.error).slice(0, 160)}` : ""}` };
+      if (!res.ok) {
+        // 429: agent của extension chờ retryAfterSeconds rồi làm tiếp; quotaPeriod "day" mới là hết quota thật.
+        const retryAfter = Number(data?.retryAfterSeconds ?? res.headers.get("retry-after"));
+        return {
+          ok: false,
+          status: res.status,
+          retryAfterSeconds: Number.isFinite(retryAfter) ? retryAfter : undefined,
+          quotaPeriod: data?.quotaPeriod,
+          error: `AI Gateway HTTP ${res.status}${data?.error ? `: ${String(data.error).slice(0, 160)}` : ""}`,
+        };
+      }
       return { ok: true, data };
     }
     return { ok: false, error: "Token AI hết hạn" };
@@ -165,8 +179,12 @@ async function askExtensionLlm(body: unknown): Promise<{ ok: boolean; data?: unk
   }
 }
 
-/** Hạn phía web, dài hơn hạn 170s của extension để luôn nhận được kết quả cuối nếu extension còn sống. */
-const COLLECT_WEB_TIMEOUT_MS = 180_000;
+/**
+ * Web chỉ bỏ cuộc khi extension im lặng quá lâu (AI agent báo tiến trình mỗi bước và mỗi 5s khi chờ quota),
+ * cộng một hạn tổng dài hơn hạn 20 phút của extension để không treo vô hạn.
+ */
+const COLLECT_IDLE_TIMEOUT_MS = 120_000;
+const COLLECT_TOTAL_TIMEOUT_MS = 21 * 60_000;
 
 /**
  * Thu thập qua Port (chrome.runtime.connect): nhận tiến trình từng mục theo thời gian thực.
@@ -185,23 +203,32 @@ export function collectMissingWithProgress(
   }
   return new Promise((resolve) => {
     let done = false;
+    let idleTimer: ReturnType<typeof setTimeout> | undefined;
     // eslint-disable-next-line prefer-const
-    let timer: ReturnType<typeof setTimeout>;
+    let totalTimer: ReturnType<typeof setTimeout>;
     const finish = (r: { ok: boolean; data?: ExtensionCollectedData; errors?: string[] }) => {
       if (done) return;
       done = true;
-      clearTimeout(timer);
+      clearTimeout(idleTimer);
+      clearTimeout(totalTimer);
       try { port.disconnect(); } catch { /* đã ngắt */ }
       resolve(r);
     };
     const port = chromeObj.runtime.connect(extId, { name: "diaba-collect" });
-    timer = setTimeout(() => finish({ ok: false, errors: [`Quá ${COLLECT_WEB_TIMEOUT_MS / 1000}s không nhận được kết quả từ extension.`] }), COLLECT_WEB_TIMEOUT_MS);
+    const touch = () => {
+      clearTimeout(idleTimer);
+      idleTimer = setTimeout(() => finish({ ok: false, errors: [`Extension không báo tiến trình trong ${COLLECT_IDLE_TIMEOUT_MS / 1000}s.`] }), COLLECT_IDLE_TIMEOUT_MS);
+    };
+    touch();
+    totalTimer = setTimeout(() => finish({ ok: false, errors: [`Quá ${COLLECT_TOTAL_TIMEOUT_MS / 60_000} phút chưa thu thập xong.`] }), COLLECT_TOTAL_TIMEOUT_MS);
     port.onMessage.addListener((msg: { type: string; id?: number; body?: unknown } & CollectProgress & { ok?: boolean; data?: ExtensionCollectedData; errors?: string[] }) => {
+      touch();
       if (msg.type === "progress") onProgress(msg);
       else if (msg.type === "result") finish({ ok: !!msg.ok, data: msg.data, errors: msg.errors });
       else if (msg.type === "llm") {
-        // AI fallback của extension đi qua máy chủ Địa Bạ (phiên đăng nhập + key phía server).
+        // AI agent của extension: web xin token rồi gọi thẳng AI Gateway (D-0116).
         askExtensionLlm(msg.body).then((r) => {
+          touch();
           if (!done) port.postMessage({ type: "llm_result", id: msg.id, ...r });
         });
       }

@@ -38,7 +38,7 @@ import {
 import { ExtensionPanel } from "@/components/extension-install";
 import { compareVersions, EXTENSION_RELEASES_PAGE, type ExtensionRelease } from "@/lib/extension-release";
 
-type CollectRows = Partial<Record<CollectSection, { status: "pending" | "running" | "done" | "failed"; detail: string }>>;
+type CollectRows = Partial<Record<CollectSection, { status: "pending" | "running" | "done" | "failed"; detail: string; diag?: Record<string, unknown> }>>;
 import {
   AiAuditSection,
   AmenitiesRail,
@@ -84,6 +84,7 @@ export default function HomePage() {
   const [collectError, setCollectError] = useState<string | null>(null);
   const [collectSuccess, setCollectSuccess] = useState<string | null>(null);
   const [collectRows, setCollectRows] = useState<CollectRows>({});
+  const [copiedDiag, setCopiedDiag] = useState<CollectSection | null>(null);
   const [collectStage, setCollectStage] = useState("");
   const [collectStartedAt, setCollectStartedAt] = useState(0);
   const [collectNow, setCollectNow] = useState(0);
@@ -170,7 +171,7 @@ export default function HomePage() {
         if (p.stage !== "section" && p.detail) setCollectStage(p.detail);
         if (p.stage === "section" && p.section) {
           setCollectStage(`Đang thu thập: ${COLLECT_SECTION_LABELS[p.section]}`);
-          setCollectRows((rows) => ({ ...rows, [p.section!]: { status: p.status || "running", detail: p.detail || "" } }));
+          setCollectRows((rows) => ({ ...rows, [p.section!]: { status: p.status || "running", detail: p.detail || "", diag: p.diag } }));
         }
       });
       // Mục chưa có trạng thái cuối khi phiên kết thúc → không lấy được.
@@ -839,6 +840,22 @@ export default function HomePage() {
                             <span className={`w-4 shrink-0 text-center font-mono ${row.status === "running" ? "animate-pulse" : ""}`}>{icon}</span>
                             <span className="font-medium">{COLLECT_SECTION_LABELS[s]}</span>
                             <span className="text-soft">— {row.detail}</span>
+                            {row.status === "failed" && row.diag && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  // Gửi dev để sửa script: cấu trúc trang Maps lúc lỗi + bản extension + quán.
+                                  const report = { place: profile.title, maps: profile.maps_link, extension: extensionVersion, section: s, detail: row.detail, at: new Date().toISOString(), diag: row.diag };
+                                  navigator.clipboard?.writeText(JSON.stringify(report, null, 2)).then(() => {
+                                    setCopiedDiag(s);
+                                    setTimeout(() => setCopiedDiag(null), 3000);
+                                  });
+                                }}
+                                className="ml-auto shrink-0 rounded-md border border-line bg-card px-2 py-0.5 text-[0.7rem] font-medium text-ink hover:bg-field"
+                              >
+                                {copiedDiag === s ? "Đã sao chép ✓" : "Sao chép chẩn đoán"}
+                              </button>
+                            )}
                           </li>
                         );
                       })}

@@ -1,6 +1,6 @@
 /**
  * Phát hành extension Địa Bạ qua GitHub Releases của repo public riêng và hướng dẫn cài theo trình duyệt.
- * Source + workflow ở github.com/dat-phan-blueberry/biz-profile-audit-ext: đẩy tag `vX.Y.Z` → Release kèm zip.
+ * Source + CI/CD ở github.com/dat-phan-blueberry/biz-profile-audit-ext: push lên main có đổi extension/ → tự chọn version → Release `vX.Y.Z` kèm zip.
  */
 
 export const EXTENSION_RELEASE_REPO = "dat-phan-blueberry/biz-profile-audit-ext";
