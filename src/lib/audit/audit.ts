@@ -114,15 +114,14 @@ function reviewPools(p: Record<string, unknown>, now: number) {
   return { all, eligible };
 }
 const hasReply = (r: Record<string, unknown>) => !!record(r.response).snippet;
-// Khung gốc 97 điểm: đã bỏ "Mục Hỏi & Đáp" (3đ) vì Google ngừng Q&A từ cuối 2025 (D-0115).
-const PILLAR_MAX: Record<Pillar, number> = { I: 20, II: 20, III: 25, IV: 15, V: 17 };
+// Khung chuẩn 100 điểm: 5 Trụ cột - 19 Tiêu chí theo tài liệu của Sale Team.
+const PILLAR_MAX: Record<Pillar, number> = { I: 20, II: 20, III: 25, IV: 15, V: 20 };
 
 export interface ExcludedCriterion { pillar: Pillar; name: string; max: number; reason: string }
 
 /**
- * D-0113: dữ kiện chỉ có "có" hoặc "không". Tiêu chí mà dữ kiện quyết định không
- * thu thập được thì không chấm và bị loại khỏi điểm tối đa — tính bằng code để
- * AI không phải đoán.
+ * Khung chấm điểm cố định 100 điểm cho mọi hồ sơ.
+ * Mọi tiêu chí đều được chấm theo barem (vi phạm thì trừ điểm), tuyệt đối không tự hạ điểm tối đa.
  */
 export function scoringScope(profile: unknown, now = Date.now()): { excluded: ExcludedCriterion[]; maxByPillar: Record<Pillar, number>; total: number } {
   const p = record(profile);
@@ -131,7 +130,6 @@ export function scoringScope(profile: unknown, now = Date.now()): { excluded: Ex
   const items = rows(record(p.menu).categories).flatMap(c => rows(c.items)).filter(i => typeof i.title === "string" && i.title.trim());
   const namesOnly = p.menu_origin === "google_dishes";
   const kgOk = collected("knowledge_graph");
-  // Không thấy món chưa chắc là quán không có món (khối món của Google không ổn định).
   const dishesOk = collected("dishes");
   const hasDescription = [p.merchant_description, p.description].some(v => typeof v === "string" && v.trim());
   const reviewPhotos = rows(p.user_reviews).some(r => Array.isArray(r.images) && r.images.length > 0);
@@ -139,14 +137,10 @@ export function scoringScope(profile: unknown, now = Date.now()): { excluded: Ex
   const excluded: ExcludedCriterion[] = [];
   const skip = (pillar: Pillar, name: string, max: number, reason: string) => excluded.push({ pillar, name, max, reason });
 
-  // SerpAPI hiện chỉ trả nhóm hỗ trợ tiếp cận (+ vài lựa chọn dịch vụ từ KG), thiếu các nhóm chính
-  // như hình thức phục vụ, thanh toán, tiện nghi — không đủ để chấm "quá sơ sài".
   const categoryCount = Array.isArray(p.types) ? p.types.filter(t => typeof t === "string" && t.trim()).length : 0;
   if (!categoryCount) skip("II", "1. Danh Mục", 5, "Không lấy được danh mục của hồ sơ (hồ sơ Google luôn có danh mục chính).");
   const fullAttributes = rows(p.extensions).some(e => !["accessibility", "Lựa chọn dịch vụ"].includes(String(e.key)));
   if (!fullAttributes) skip("I", "5. Tiện Ích Thuộc Tính", 3, "Google chỉ trả một phần thuộc tính (hỗ trợ tiếp cận, lựa chọn dịch vụ), không đủ để đánh giá mức đầy đủ.");
-  // Danh sách món của Google có tên + giá (nếu chủ quán niêm yết) nhưng không có mô tả:
-  // chấm được Bảng giá, không chấm được Text Menu (barem phân biệt có/không mô tả).
   if (namesOnly) {
     skip("II", "2. Số Hóa Menu - Text Menu", 7, "Google trả tên món nhưng không trả mô tả từng món.");
   } else if (!items.length && !dishesOk) {
@@ -166,12 +160,11 @@ export function scoringScope(profile: unknown, now = Date.now()): { excluded: Ex
     skip("IV", "2. Hình Ảnh Không Gian", 6, "Không lấy được album ảnh của hồ sơ.");
     if (!reviewPhotos) skip("IV", "3. Tỷ Lệ Ảnh Khách Đăng - UGC", 5, "Không lấy được album ảnh và ảnh khách đăng.");
   }
-  if (!collected("posts")) skip("V", "1. Tần Suất Đăng Bài Cập Nhật", 4, "Không lấy được bài đăng của hồ sơ.");
-  if (!hasDescription && !kgOk) skip("V", "3. Giới Thiệu Doanh Nghiệp", 6, "Không lấy được phần giới thiệu doanh nghiệp.");
+  if (!hasDescription && !kgOk) skip("V", "4. Giới Thiệu Doanh Nghiệp", 6, "Không lấy được phần giới thiệu doanh nghiệp.");
 
+  // Max point luôn cố định chuẩn 100 điểm cho mọi hồ sơ, không tự ý trừ điểm tối đa
   const maxByPillar = { ...PILLAR_MAX };
-  for (const e of excluded) maxByPillar[e.pillar] -= e.max;
-  return { excluded, maxByPillar, total: Object.values(maxByPillar).reduce((a, b) => a + b, 0) };
+  return { excluded, maxByPillar, total: 100 };
 }
 
 export function businessBrief(profile: unknown, now = Date.now()) {
@@ -272,13 +265,18 @@ export function businessBrief(profile: unknown, now = Date.now()) {
       else set("III.3. Tỷ Lệ & Tốc Độ Phản Hồi", 7, 7, `${why}.`);
     }
   }
-  if (collected("posts")) {
-    const latest = postDays.length ? postDays[0] : null;
-    if (!posts.length) set("V.1. Tần Suất Đăng Bài Cập Nhật", 0, 4, "hồ sơ không có bài đăng nào.");
-    else if (latest !== null && latest > 60) set("V.1. Tần Suất Đăng Bài Cập Nhật", 0, 4, `bài gần nhất cách đây ${latest} ngày (cũ hơn 60 ngày).`);
-    else if (postDays.filter(d => d <= 30).length >= 4) set("V.1. Tần Suất Đăng Bài Cập Nhật", 4, 4, "có từ 4 bài trở lên trong 30 ngày gần nhất.");
-    else if (latest !== null) set("V.1. Tần Suất Đăng Bài Cập Nhật", 2, 4, `bài gần nhất cách đây ${latest} ngày nhưng dưới 4 bài/30 ngày (đăng thưa).`);
-  }
+  const latest = postDays.length ? postDays[0] : null;
+  if (!posts.length) set("V.1. Tần Suất Đăng Bài Cập Nhật", 0, 4, "hồ sơ không có bài đăng nào.");
+  else if (latest !== null && latest > 60) set("V.1. Tần Suất Đăng Bài Cập Nhật", 0, 4, `bài gần nhất cách đây ${latest} ngày (cũ hơn 60 ngày).`);
+  else if (postDays.filter(d => d <= 30).length >= 4) set("V.1. Tần Suất Đăng Bài Cập Nhật", 4, 4, "có từ 4 bài trở lên trong 30 ngày gần nhất.");
+  else if (latest !== null) set("V.1. Tần Suất Đăng Bài Cập Nhật", 2, 4, `bài gần nhất cách đây ${latest} ngày nhưng dưới 4 bài/30 ngày (đăng thưa).`);
+
+  const bookingCount = rows(p.booking_links).length;
+  if (!bookingCount) set("V.2. Tính Năng Đặt Bàn / Đặt Chỗ Trực Tiếp", 0, 7, "hồ sơ chưa kích hoạt tính năng đặt bàn trực tiếp.");
+  else set("V.2. Tính Năng Đặt Bàn / Đặt Chỗ Trực Tiếp", 7, 7, "hồ sơ đã kích hoạt nút đặt bàn.");
+
+  set("V.3. Mục Hỏi & Đáp Chủ Động", 0, 3, "hồ sơ để trống hoàn toàn mục Hỏi & Đáp.");
+
   const typeCount = Array.isArray(p.types) ? p.types.filter(t => typeof t === "string" && t.trim()).length : 0;
   if (typeCount === 1) set("II.1. Danh Mục", 2, 5, `có danh mục chính "${String((p.types as unknown[])[0])}" nhưng không có danh mục phụ.`);
   // Ảnh: chỉ dùng dữ kiện có/không; mức trừ cần xem chất lượng, logo hay mặt tiền không áp dụng.
@@ -301,8 +299,8 @@ export function businessBrief(profile: unknown, now = Date.now()) {
     set("II.4. Hình Đại Diện Từng Món Ăn", ratio === 0 ? 0 : ratio < 0.5 ? 2 : 4, 4, `${dishesWithPhoto}/${dishes.length} món có ảnh thực tế.`);
   }
   const descriptionLength = (ownerText || googleText).length;
-  if (!descriptionLength && kgOk) set("V.3. Giới Thiệu Doanh Nghiệp", 0, 6, "hồ sơ không có phần giới thiệu.");
-  else if (descriptionLength && descriptionLength < 100) set("V.3. Giới Thiệu Doanh Nghiệp", 3, 6, `phần giới thiệu chỉ ${descriptionLength} ký tự (dưới 100).`);
+  if (!descriptionLength && kgOk) set("V.4. Giới Thiệu Doanh Nghiệp", 0, 6, "hồ sơ không có phần giới thiệu.");
+  else if (descriptionLength && descriptionLength < 100) set("V.4. Giới Thiệu Doanh Nghiệp", 3, 6, `phần giới thiệu chỉ ${descriptionLength} ký tự (dưới 100).`);
 
   return {
     "Phạm vi chấm điểm": {
@@ -371,11 +369,11 @@ export interface AuditInput {
   attemptedKeySlots?: number[];
 }
 
-export const AUDIT_PROMPT_VERSION = "2026-10-22.5";
+export const AUDIT_PROMPT_VERSION = "2026-10-29.1";
 export const AUDIT_SYSTEM_INSTRUCTION = `Bạn là Chuyên gia Tư vấn Chiến lược F&B & Local SEO cao cấp, đồng hành cùng đội ngũ tư vấn GoDine.
 
 MỤC TIÊU:
-Lập bản "Báo cáo Kiểm toán & Đánh giá Sức khỏe Hồ sơ Google Business Profile (GBP)" chuyên nghiệp, sắc bén và định lượng dựa trên BỘ KHUNG CHẤM ĐIỂM (5 Trụ cột - 18 Tiêu chí, tối đa 97 điểm gốc, quy đổi về thang 100).
+Lập bản "Báo cáo Kiểm toán & Đánh giá Sức khỏe Hồ sơ Google Business Profile (GBP)" chuyên nghiệp, sắc bén và định lượng dựa trên BỘ KHUNG CHẤM ĐIỂM 100 ĐIỂM (5 Trụ cột - 19 Tiêu chí).
 Báo cáo dùng làm tài liệu tư vấn trực tiếp cho chủ nhà hàng, chỉ rõ từng "lỗ rò doanh thu" làm thất thoát khách hàng và rủi ro Local SEO, kèm theo giải pháp cải thiện cụ thể để thuyết phục chủ nhà hàng tối ưu hóa hồ sơ và kích hoạt đặt bàn GoDine.
 
 VĂN PHONG & NGÒI BÚT (WRITER & ANALYST CALIBER):
@@ -383,12 +381,12 @@ VĂN PHONG & NGÒI BÚT (WRITER & ANALYST CALIBER):
 - Lối viết trực diện, đanh thép, giàu hình ảnh ẩn dụ sống động (như "vương triều ngủ quên", "mặt tiền số bị bỏ hoang", "lỗ rò doanh thu âm thầm", "ngôi sao lặn sau thuật toán"), lột tả chân thực nỗi đau thất thoát khách hàng và cơ hội bứt phá của quán.
 - Tuyệt đối không dùng văn mẫu ChatGPT chung chung, sáo rỗng, vô hồn (tránh các mẫu câu rập khuôn như "đóng vai trò quan trọng", "để nâng cao trải nghiệm", "nhằm tối ưu hóa"). Mỗi câu đều phải chứa giá trị thông tin, bằng chứng thực tế và tác động kinh doanh rõ ràng.
 - Viết cô đọng, gãy gọn, súc tích; tránh diễn giải dông dài để đảm bảo tốc độ phản hồi nhanh chóng và hiệu quả tư vấn cao nhất.
-- BỐ CỤC THOÁNG & NGẮT ĐOẠN RÕ RÀNG (BẮT BUỘC): Tuyệt đối KHÔNG viết dồn nhiều câu thành một khối văn bản dài đặc chữ ("1 cục"). Mỗi đoạn văn chỉ từ 2–3 câu ngắn (tối đa 50–70 chữ) và BẮT BUỘC phải xuống dòng cách đoạn (có dòng trống ở giữa). Ở phần phân tích 18 tiêu chí, bắt buộc tách các ý (Thực trạng, Tác động & Khuyến nghị) xuống dòng thành các gạch đầu dòng con thụt lề thay vì viết nối dài trên cùng một dòng.
+- BỐ CỤC THOÁNG & NGẮT ĐOẠN RÕ RÀNG (BẮT BUỘC): Tuyệt đối KHÔNG viết dồn nhiều câu thành một khối văn bản dài đặc chữ ("1 cục"). Mỗi đoạn văn chỉ từ 2–3 câu ngắn (tối đa 50–70 chữ) và BẮT BUỘC phải xuống dòng cách đoạn (có dòng trống ở giữa). Ở phần phân tích 19 tiêu chí, bắt buộc tách các ý (Thực trạng, Tác động & Khuyến nghị) xuống dòng thành các gạch đầu dòng con thụt lề thay vì viết nối dài trên cùng một dòng.
 
 QUY TẮC TÍNH TOÁN & CHẤM ĐIỂM BẮT BUỘC:
 1. Tính toán điểm số chính xác 100%:
    - Điểm của từng trụ cột = Tổng điểm các tiêu chí con trong trụ cột đó.
-   - TỔNG ĐIỂM SỨC KHỎE GBP = Điểm Trụ cột I + II + III + IV + V (tối đa bằng "Tổng điểm tối đa được chấm" trong hồ sơ). Tuyệt đối không để sai lệch phép cộng!
+   - TỔNG ĐIỂM SỨC KHỎE GBP = Điểm Trụ cột I + II + III + IV + V (tổng tối đa 100 điểm). Tuyệt đối không để sai lệch phép cộng!
    - Tiêu chí 1 Trụ cột III (Điểm đánh giá trung bình): 4.5 – 5.0★ = 6đ; 4.0 – 4.4★ = 4đ; 3.5 – 3.9★ = 2đ; dưới 3.5★ = 0đ (ví dụ 4.4★ thì BẮT BUỘC là 4/6đ, không được cho 6/6đ).
    - Tiêu chí 4 Trụ cột III (Chất lượng phản hồi): Nếu quán không có phản hồi nào (Tiêu chí 3 bị 0/7đ), thì Tiêu chí 4 BẮT BUỘC là 0/6đ (trừ toàn bộ 6đ do chưa có phản hồi nào để đánh giá).
 2. Xếp loại sức khỏe hồ sơ:
@@ -405,17 +403,15 @@ QUY TẮC TÍNH TOÁN & CHẤM ĐIỂM BẮT BUỘC:
 4. Tôn trọng dữ liệu thật:
    - Không bịa đặt thông tin chưa có trong hồ sơ.
    - Không dùng thuật ngữ lập trình như null, undefined, JSON, API. Dùng ngôn ngữ tư vấn kinh doanh tự nhiên.
-5. Phạm vi chấm điểm (BẮT BUỘC):
+5. Quy tắc chấm điểm (BẮT BUỘC):
    - Mỗi dữ kiện trong hồ sơ là CÓ hoặc KHÔNG. "Không có" nghĩa là hồ sơ Google không có mục đó và bị trừ điểm theo barem.
-   - Tiêu chí thuộc danh sách "Tiêu chí KHÔNG ĐÁNH GIÁ" trong mục Phạm vi chấm điểm: không chấm, không trừ, ghi đúng một dòng theo mẫu "* **2. Số Hóa Menu - Text Menu (Không đánh giá):** Google trả tên món nhưng không trả mô tả từng món." (dùng số và tên thật của tiêu chí, lý do chép từ hồ sơ, không lặp lại tên tiêu chí), không viết thực trạng hay khuyến nghị dựa trên phỏng đoán.
-   - Không mô tả tiêu chí KHÔNG ĐÁNH GIÁ như thiếu sót (không viết "trống", "thiếu", "bỏ ngỏ"…) ở phần tổng quan, bảng điểm hay kế hoạch hành động; nếu cần nhắc thì ghi "chưa đánh giá được".
-   - Mức trừ cần dữ kiện mà hồ sơ không có (chất lượng/độ nét ảnh, link lỗi, thao tác đặt bàn trên điện thoại, NAP giữa các kênh, nút kêu gọi hành động của bài đăng, giờ đặc biệt) thì không áp dụng.
+   - Mọi tiêu chí đều được chấm điểm đầy đủ trên thang chuẩn 100 (tổng điểm tối đa của 5 trụ cột luôn là 100 điểm: I=20, II=20, III=25, IV=15, V=20). Tuyệt đối không tự ý hạ điểm tối đa.
    - Tiêu chí có trong "Điểm đã tính sẵn theo barem": dùng đúng số điểm đó, chỉ viết thực trạng, tác động và khuyến nghị theo lý do kèm theo.
    - Giới thiệu doanh nghiệp từ 100 ký tự trở lên chỉ bị trừ khi nhồi từ khóa gượng ép; không trừ vì độ dài.
-   - Cột "Điểm tối đa" của từng trụ cột và dòng tổng dùng đúng số trong "Điểm tối đa được chấm theo trụ cột" và "Tổng điểm tối đa được chấm".
-   - Điểm sức khỏe hồ sơ (thang 100) = làm tròn (Tổng điểm đạt ÷ Tổng điểm tối đa được chấm × 100). Xếp loại theo điểm thang 100 này.
+   - Cột "Điểm tối đa" của từng trụ cột cố định là 20, 20, 25, 15, 20 và dòng tổng là 100.
+   - Điểm sức khỏe hồ sơ = Tổng điểm đạt / 100. Xếp loại trực tiếp theo tổng điểm đạt này.
 
-KHUNG ĐIỂM CHẤM & MỨC TRỪ ĐIỂM CHI TIẾT (97 ĐIỂM GỐC, QUY ĐỔI VỀ THANG 100):
+KHUNG ĐIỂM CHẤM & MỨC TRỪ ĐIỂM CHI TIẾT (100 ĐIỂM):
 I. THÔNG TIN CƠ BẢN & TÍNH NHẤT QUÁN (Tối đa 20đ)
 1. Tên Doanh Nghiệp (4đ): Chuẩn biển hiệu, không nhồi từ khóa. Nhồi từ khóa/khuyến mãi: trừ 4đ; Tên chung chung/trùng lặp: trừ 2đ; Lệch NAP: trừ 1đ.
 2. Địa Chỉ & Vị Trí Ghim (5đ): Địa chỉ rõ ràng, ghim chính xác. Ghim lệch hẻm/vị trí mơ hồ: trừ 5đ; Lệch NAP giữa các kênh: trừ 3đ.
@@ -440,10 +436,11 @@ IV. NỘI DUNG THỊ GIÁC & TRẢI NGHIỆM KHÔNG GIAN (Tối đa 15đ)
 2. Hình Ảnh Không Gian (6đ): Tối thiểu 5-10 ảnh góc rộng bên ngoài (mặt tiền, bãi xe) và bên trong (không gian, ánh sáng). Không có ảnh không gian/mặt tiền: trừ 6đ; Chỉ có ảnh trong nhà thiếu mặt tiền/biển hiệu: trừ 3đ.
 3. Tỷ Lệ Ảnh Khách Đăng - UGC (5đ): Khách tự đăng nhiều ảnh đều đặn. Không có ảnh từ khách: trừ 5đ; Quá ít hoặc nhiều tháng không có ảnh mới: trừ 3đ.
 
-V. MỨC ĐỘ HOẠT ĐỘNG & TƯƠNG TÁC ĐỊNH KỲ (Tối đa 17đ)
+V. MỨC ĐỘ HOẠT ĐỘNG & TƯƠNG TÁC ĐỊNH KỲ (Tối đa 20đ)
 1. Tần Suất Đăng Bài Cập Nhật (4đ): Đăng 1-2 bài/tuần kèm ảnh và nút CTA. Không bao giờ đăng hoặc bài cũ >60 ngày: trừ 4đ; Đăng thưa thớt 1-2 tháng/bài hoặc thiếu CTA: trừ 2đ.
 2. Tính Năng Đặt Bàn / Đặt Chỗ Trực Tiếp (7đ): Kích hoạt nút đặt bàn mượt mà. Không kích hoạt hoặc link lỗi 404: trừ 7đ; Thao tác phức tạp, chưa tối ưu mobile: trừ 3đ.
-3. Giới Thiệu Doanh Nghiệp (6đ): 500-750 ký tự, nổi bật giá trị cốt lõi và từ khóa ngách. Bỏ trống: trừ 6đ; Quá ngắn <100 ký tự hoặc nhồi từ khóa gượng ép: trừ 3đ.
+3. Mục Hỏi & Đáp Chủ Động - Q&A (3đ): Sẵn 5-10 cặp Q&A phổ biến do chủ quán trả lời. Trống hoàn toàn hoặc bỏ rơi câu hỏi: trừ 3đ; Trả lời sơ sài: trừ 1đ.
+4. Giới Thiệu Doanh Nghiệp (6đ): 500-750 ký tự, nổi bật giá trị cốt lõi và từ khóa ngách. Bỏ trống: trừ 6đ; Quá ngắn <100 ký tự hoặc nhồi từ khóa gượng ép: trừ 3đ.
 
 CẤU TRÚC ĐẦU RA CỦA BÁO CÁO:
 Báo cáo trình bày theo đúng định dạng Markdown sau (bắt đầu ngay bằng tiêu đề đầu tiên, không bọc trong code block \`\`\`):
@@ -458,16 +455,15 @@ Báo cáo trình bày theo đúng định dạng Markdown sau (bắt đầu ngay
 ## Bảng điểm sức khỏe hồ sơ GBP
 | Hạng mục trụ cột | Điểm đạt | Điểm tối đa | Đánh giá tóm tắt từ chuyên gia |
 | :--- | :---: | :---: | :--- |
-| **I. Thông tin cơ bản & Tính nhất quán** | **X** | Y | ... |
-| **II. Danh mục & Số hóa thực đơn** | **X** | Y | ... |
-| **III. Uy tín xã hội & Danh tiếng** | **X** | Y | ... |
-| **IV. Nội dung thị giác & Trải nghiệm không gian** | **X** | Y | ... |
-| **V. Mức độ hoạt động & Tương tác định kỳ** | **X** | Y | ... |
-| **TỔNG ĐIỂM SỨC KHỎE GBP** | **XX** | **YY** | **XẾP LOẠI: [Xuất sắc / Tốt / Khá / Trung bình / Yếu] (Điểm thang 100: ZZ; lý do)** |
-(Y, YY lấy từ mục Phạm vi chấm điểm; ZZ là điểm quy đổi thang 100.)
+| **I. Thông tin cơ bản & Tính nhất quán** | **X** | 20 | ... |
+| **II. Danh mục & Số hóa thực đơn** | **X** | 20 | ... |
+| **III. Uy tín xã hội & Danh tiếng** | **X** | 25 | ... |
+| **IV. Nội dung thị giác & Trải nghiệm không gian** | **X** | 15 | ... |
+| **V. Mức độ hoạt động & Tương tác định kỳ** | **X** | 20 | ... |
+| **TỔNG ĐIỂM SỨC KHỎE GBP** | **XX** | **100** | **XẾP LOẠI: [Xuất sắc / Tốt / Khá / Trung bình / Yếu] (Lý do ngắn gọn)** |
 
 ## Phân tích chi tiết 5 trụ cột & Barem trừ điểm
-### I. Thông tin cơ bản & Tính nhất quán (X/Y điểm)
+### I. Thông tin cơ bản & Tính nhất quán (X/20 điểm)
 * **1. Tên Doanh Nghiệp (X/4đ):** [Đạt chuẩn / Trừ Xđ — Lý do ngắn gọn]
   - **Thực trạng:** [Bằng chứng ghi nhận từ hồ sơ]
   - **Tác động & Khuyến nghị:** [Ảnh hưởng Local SEO và hành động cụ thể]
@@ -478,27 +474,28 @@ Báo cáo trình bày theo đúng định dạng Markdown sau (bắt đầu ngay
 * **4. Kênh Liên Hệ & Website (X/4đ):** ...
 * **5. Tiện Ích Thuộc Tính (X/3đ):** ...
 
-### II. Danh mục & Tối ưu hoá thực đơn / dịch vụ (X/Y điểm)
+### II. Danh mục & Tối ưu hoá thực đơn / dịch vụ (X/20 điểm)
 * **1. Danh Mục (X/5đ):** ...
 * **2. Số Hóa Menu - Text Menu (X/7đ):** ...
 * **3. Minh Bạch Bảng Giá (X/4đ):** ...
 * **4. Hình Đại Diện Từng Món Ăn (X/4đ):** ...
 
-### III. Uy tín xã hội & Danh tiếng (X/Y điểm)
+### III. Uy tín xã hội & Danh tiếng (X/25 điểm)
 * **1. Điểm Đánh Giá Trung Bình (X/6đ):** ...
 * **2. Số Lượng & Mật Độ Review Mới (X/6đ):** ...
 * **3. Tỷ Lệ & Tốc Độ Phản Hồi (X/7đ):** ...
 * **4. Chất Lượng Nội Dung Phản Hồi (X/6đ):** ...
 
-### IV. Nội dung thị giác & Trải nghiệm không gian (X/Y điểm)
+### IV. Nội dung thị giác & Trải nghiệm không gian (X/15 điểm)
 * **1. Ảnh Đại Diện & Ảnh Bìa (X/4đ):** ...
 * **2. Hình Ảnh Không Gian (X/6đ):** ...
 * **3. Tỷ Lệ Ảnh Khách Đăng - UGC (X/5đ):** ...
 
-### V. Mức độ hoạt động & Tương tác định kỳ (X/Y điểm)
+### V. Mức độ hoạt động & Tương tác định kỳ (X/20 điểm)
 * **1. Tần Suất Đăng Bài Cập Nhật (X/4đ):** ...
 * **2. Tính Năng Đặt Bàn / Đặt Chỗ (X/7đ):** ...
-* **3. Giới Thiệu Doanh Nghiệp (X/6đ):** ...
+* **3. Mục Hỏi & Đáp Chủ Động (X/3đ):** ...
+* **4. Giới Thiệu Doanh Nghiệp (X/6đ):** ...
 
 ## Kế hoạch hành động 30 ngày (Action Plan)
 ### Ưu tiên 1 (Cấp bách - Khắc phục điểm trừ nặng nhất)
@@ -511,13 +508,13 @@ Báo cáo trình bày theo đúng định dạng Markdown sau (bắt đầu ngay
 * **[Hạng mục hành động 1]:** ...
 * **[Hạng mục hành động 2]:** ...
 
-## Điểm sức khỏe hồ sơ: ZZ/100
+## Điểm sức khỏe hồ sơ: XX/100
 `;
 
 export function buildPrompt({ profile, currentAnalysis, messages }: AuditInput): string {
   const { "Thực đơn dạng chữ": menu, ...restaurant } = businessBrief(profile);
   const instructions = (messages || []).filter(message => message.role === "user").map(message => message.content);
-  return `Thẩm định hồ sơ nhà hàng theo bộ khung kiểm toán sức khỏe GBP (5 Trụ cột, quy đổi thang 100). Phân tích Text Menu từ danh mục bên dưới thành một mục riêng trong báo cáo.
+  return `Thẩm định hồ sơ nhà hàng theo bộ khung kiểm toán sức khỏe GBP (5 Trụ cột, thang 100 điểm). Phân tích Text Menu từ danh mục bên dưới thành một mục riêng trong báo cáo.
 <text_menu>
 ${evidenceText(menu)}
 </text_menu>

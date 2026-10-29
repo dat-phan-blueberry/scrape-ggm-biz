@@ -13,7 +13,7 @@ Deno.test("Tư liệu thiếu ở mọi cấp thành lời rõ nghĩa, không l�
   } });
   if (/\b(?:null|undefined|NaN)\b|\[object Object\]|\[\]|internal-id|data_id/.test(prompt)) throw new Error("Lộ cách biểu diễn dữ liệu máy");
   // D-0113: hồ sơ không làm giàu được → tiêu chí liên quan "Không đánh giá"; trường thiếu trong nguồn đã lấy → "Không có".
-  contains(prompt, ["Giới thiệu của nhà hàng: Không đánh giá", "Khoảng giá: Không có trên hồ sơ Google.", "Điểm sao của khách (thang 5): 0", "Số lượt: 0", "Khách phản ánh phục vụ chậm", "V.3. Giới Thiệu Doanh Nghiệp (6đ)"]);
+  contains(prompt, ["Giới thiệu của nhà hàng: Không đánh giá", "Khoảng giá: Không có trên hồ sơ Google.", "Điểm sao của khách (thang 5): 0", "Số lượt: 0", "Khách phản ánh phục vụ chậm", "V.4. Giới Thiệu Doanh Nghiệp (6đ)"]);
 });
 
 Deno.test("Ghi chú menu giữ tên, giá, mô tả nhiều dòng và nhóm món; không biến giá 0 thành thiếu", () => {

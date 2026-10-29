@@ -70,14 +70,14 @@ Deno.test("Bốn nguồn phụ chạy qua hàm search được truyền vào, c�
   equal(enrichmentEnabled("false"), false);
 });
 
-Deno.test("Không lấy được phản hồi/bài đăng thì tiêu chí không chấm và bị loại khỏi điểm tối đa (D-0113)", () => {
+Deno.test("Không lấy được phản hồi/bài đăng thì ghi nhận thực trạng, tổng điểm tối đa luôn cố định 100", () => {
   const prompt = buildPrompt({ profile: { title: "Quán cũ", enrichment: { knowledge_graph: "failed", reviews: "failed", posts: "failed", photos: "failed" } } });
   contains(prompt, [
     "Phản hồi của chủ quán với đánh giá: Không đánh giá — không lấy được đánh giá mới nhất và phản hồi của chủ quán.",
     "III.3. Tỷ Lệ & Tốc Độ Phản Hồi (7đ)",
     "Bài đăng cập nhật trên Google: Không đánh giá",
     "Nguồn và độ dài phần giới thiệu: Không đánh giá",
-    "Tổng điểm tối đa được chấm: 34",
+    "Tổng điểm tối đa được chấm: 100",
   ]);
   lacks(prompt, ["hưa thu thập", "Chưa ghi nhận"]);
   // Hồ sơ đã lưu trước bản này không có `enrichment`: cũng là không lấy được.
@@ -86,12 +86,12 @@ Deno.test("Không lấy được phản hồi/bài đăng thì tiêu chí không
   contains(empty, ["Bài đăng cập nhật trên Google: Không có bài đăng nào."]);
 });
 
-Deno.test("Phạm vi chấm: đủ nguồn + thực đơn từ danh sách món + tiện ích lẻ → loại Tiện ích, Text Menu và Q&A, tối đa 87", () => {
+Deno.test("Phạm vi chấm: điểm tối đa luôn cố định 100 điểm, các trụ cột cố định (20, 20, 25, 15, 20)", () => {
   const scope = scoringScope({ enrichment: { knowledge_graph: "ok", reviews: "ok", posts: "ok", photos: "ok" }, menu_origin: "google_dishes",
     menu: { categories: [{ title: "Món", items: [{ title: "Pad Thai" }] }] }, menu_highlights: [{ title: "Pad Thai", photos: 3 }], merchant_description: "x", types: ["Nhà hàng chay", "Nhà hàng Việt Nam"] });
   equal(scope.excluded.map(e => `${e.pillar}.${e.name}`), ["I.5. Tiện Ích Thuộc Tính", "II.2. Số Hóa Menu - Text Menu"]);
-  equal(scope.maxByPillar, { I: 17, II: 13, III: 25, IV: 15, V: 17 });
-  equal(scope.total, 87);
+  equal(scope.maxByPillar, { I: 20, II: 20, III: 25, IV: 15, V: 20 });
+  equal(scope.total, 100);
   // Có nhóm tiện ích chính (vd dining_options) thì vẫn chấm I.5.
   equal(scoringScope({ extensions: [{ key: "dining_options", items: ["Ăn tại chỗ"] }] }).excluded.some(e => e.name.startsWith("5. Tiện Ích")), false);
 });
@@ -167,10 +167,10 @@ Deno.test("Điểm tính sẵn theo barem: sao, bài đăng >60 ngày, phản h�
     "bỏ trống 1 đánh giá 1–2★",
     "V.1. Tần Suất Đăng Bài Cập Nhật: 0/4đ — bài gần nhất cách đây 88 ngày (cũ hơn 60 ngày).",
     "II.4. Hình Đại Diện Từng Món Ăn: 4/4đ — 2/3 món có ảnh thực tế.",
-    "V.3. Giới Thiệu Doanh Nghiệp: 3/6đ — phần giới thiệu chỉ 14 ký tự (dưới 100).",
+    "V.4. Giới Thiệu Doanh Nghiệp: 3/6đ — phần giới thiệu chỉ 14 ký tự (dưới 100).",
   ]);
-  // Tiêu chí đã bị loại (không lấy được bài đăng) thì không được có điểm tính sẵn.
-  lacks(buildPrompt({ profile: { enrichment: { posts: "failed" }, posts: [] } }), ["V.1. Tần Suất Đăng Bài Cập Nhật: 0/4đ"]);
+  // Quán không có bài đăng: vi phạm barem và bị trừ điểm (0/4đ), không tự hạ max point.
+  contains(buildPrompt({ profile: { enrichment: { posts: "failed" }, posts: [] } }), ["V.1. Tần Suất Đăng Bài Cập Nhật: 0/4đ — hồ sơ không có bài đăng nào."]);
 });
 
 Deno.test("Khối món của Google lúc có lúc không: thử lại bản tiếng Anh; vẫn không có thì 3 tiêu chí menu không chấm", async () => {
